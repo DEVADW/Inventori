@@ -113,5 +113,5 @@
         </div>
         {{-- modal status --}}
         <x-modal-status-change></x-modal-status-change>
-
+	{{$dataInventaris->links()}}
     @endsection

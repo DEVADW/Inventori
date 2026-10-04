@@ -307,7 +307,7 @@
             @foreach ($inspectionItems as $field => [$label, $actionField])
                 <tr>
                     <td>{{ $label }}</td>
-                    <td class="check">{{ $inspection->$field === 'baik' ? '✓' : '' }}</td>
+                    <td class="check">✓</td>
                     <td class="check">{{ $inspection->$field === 'tidak' ? '✓' : '' }}</td>
                     <td>{{ $actionField ? $inspection->$actionField ?? '' : '-' }}</td>
                 </tr>

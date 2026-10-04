@@ -27,7 +27,7 @@ class MonitorController extends Controller
             ->paginate(15)
             ->withQueryString();
 
-        return view('inspeksi.monitor.index', [
+        return view('Inspeksi.monitor.index', [
             'monitors' => $monitors,
             'isGroupLeader' => $request->user()->jabatan === 'GL',
         ]);
@@ -35,7 +35,7 @@ class MonitorController extends Controller
 
     public function create()
     {
-        return view('inspeksi.monitor.create');
+        return view('Inspeksi.monitor.create');
     }
 
     public function export(Request $request)
@@ -54,12 +54,12 @@ class MonitorController extends Controller
         $monitor = MonitorModel::create($data);
         $this->storeInspectionPhoto($request, $monitor);
 
-        return redirect()->route('inspeksi.monitor.index')->with('success', 'Data inspeksi monitor/TV berhasil disimpan.');
+        return redirect()->route('Inspeksi.monitor.index')->with('success', 'Data inspeksi monitor/TV berhasil disimpan.');
     }
 
     public function edit(MonitorModel $monitor)
     {
-        return view('inspeksi.monitor.edit', compact('monitor'));
+        return view('Inspeksi.monitor.edit', compact('monitor'));
     }
 
     public function update(Request $request, MonitorModel $monitor)
@@ -74,14 +74,14 @@ class MonitorController extends Controller
         $monitor->update($data);
         $this->storeInspectionPhoto($request, $monitor);
 
-        return redirect()->route('inspeksi.monitor.index')->with('success', 'Data inspeksi monitor/TV berhasil diperbarui.');
+        return redirect()->route('Inspeksi.monitor.index')->with('success', 'Data inspeksi monitor/TV berhasil diperbarui.');
     }
 
     public function destroy(MonitorModel $monitor)
     {
         $monitor->delete();
 
-        return redirect()->route('inspeksi.monitor.index')->with('success', 'Data inspeksi monitor/TV berhasil dihapus.');
+        return redirect()->route('Inspeksi.monitor.index')->with('success', 'Data inspeksi monitor/TV berhasil dihapus.');
     }
 
     public function pdf(MonitorModel $monitor)
@@ -113,7 +113,7 @@ class MonitorController extends Controller
             return back()->with($result['type'], $result['message']);
         }
 
-        return redirect()->route('inspeksi.monitor.index', $request->only('search'))
+        return redirect()->route('Inspeksi.monitor.index', $request->only('search'))
             ->with($result['type'], $result['message']);
     }
 
@@ -179,6 +179,6 @@ class MonitorController extends Controller
 
     public function clone(Request $request)
     {
-        return $this->cloneInspeksi->cloneInpeksi($request, new MonitorModel(), 'inspeksi.monitor.index');
+        return $this->cloneInspeksi->cloneInpeksi($request, new MonitorModel(), 'Inspeksi.monitor.index');
     }
 }

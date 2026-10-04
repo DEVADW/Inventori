@@ -1,7 +1,7 @@
 @php
     $jabatan = strtolower(trim((string) (Auth::user()->jabatan ?? '')));
     $jabatan = preg_replace('/\s+/', '_', $jabatan);
-    $isUploadAndCamera = in_array($jabatan, ['ict', 'helper', 'gl'], true);
+    $isUploadAndCamera = in_array($jabatan, ['ict', 'helper', 'hardware_enggineer', 'ict_technician'], true);
     $isCameraOnly = in_array($jabatan, ['hardware_enggineer', 'ict_technician'], true);
 @endphp
 

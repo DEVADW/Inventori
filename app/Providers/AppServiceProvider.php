@@ -56,13 +56,14 @@ class AppServiceProvider extends ServiceProvider
                 'ict_technician',
                 'ict technician',
                 'non_staff',
+                 'helper',
             ], true);
         });
          Gate::define('isHelper', function (User $user) {
             return $user->jabatan === 'helper';
         });
          Gate::define('BukuTamu', function (User $user) {
-            return in_array($user->jabatan, ['admin', 'helper', 'security']);
+            return in_array($user->jabatan, ['admin', 'security']);
         });
 
         Gate::define('createBtn', function (User $user) {

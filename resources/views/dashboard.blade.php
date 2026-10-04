@@ -382,7 +382,7 @@
 
     <div class="row g-4">
         <div class="col-lg-7">
-            @if(Auth::user()->role === 'admin' || Auth::user()->can('isGL') || Auth::user()->can('isIct'))
+            @if(Auth::user()->role === 'admin' || Auth::user()->can('isGL') || Auth::user()->can('isIct') || Auth::user()->can('isIctTechnician'))
                 <div class="card dashboard-stat">
                     <div class="card-body p-4">
                         <h5 class="mb-1">Ringkasan inspeksi</h5>
@@ -426,7 +426,7 @@
                         @if(Auth::user()->jabatan === 'security')
                             <div class="col-6"><a class="quick-link d-block p-3" href="{{ route('tamu.index') }}"><i
                                         class="bi bi-book d-block fs-5 mb-1"></i><small class="fw-semibold">Buku Tamu</small></a></div>
-                        @elseif(Auth::user()->role === 'admin' || Auth::user()->can('isGL') || Auth::user()->can('isIct'))
+                        @elseif(Auth::user()->role === 'admin' || Auth::user()->can('isGL'))
                             <div class="col-6"><a class="quick-link d-block p-3"
                                     href="{{ route('inspeksi.ups.create') }}"><i
                                         class="bi bi-clipboard-plus d-block fs-5 mb-1"></i><small class="fw-semibold">Inspeksi

@@ -1,6 +1,6 @@
 @php
     $userJabatan = strtolower(trim((string) (Auth::user()->jabatan ?? '')));
-    $isIctTechnician = in_array($userJabatan, ['ict', 'ict technician', 'ict_technician'], true);
+    $isIctTechnician = in_array($userJabatan, ['ict_technician'], true);
     $isHardwareEngineer = in_array($userJabatan, ['hardware engineer', 'hardware_enggineer', 'hardware engg', 'hardware_engg'], true);
 @endphp
 
@@ -38,7 +38,7 @@
                     @endcan
 
                     <!-- Inventaris - Admin Only -->
-                    @can('isAdmin')
+                    @if(Auth::user()->can('isIct') || Auth::user()->can('isGL') || Auth::user()->can('isAdmin'))
                         <li class="nav-item">
                             <a href="{{ route('inventaris.index') }}"
                                 class="nav-link {{ request()->routeIs('inventaris.*') ? 'active' : '' }}">
@@ -46,7 +46,7 @@
                                 <p class="sidebar-link">Inventaris</p>
                             </a>
                         </li>
-                    @endcan
+                    @endif
 
                     <!-- Menu Dropdown Inspeksi - Jabatan ICT, GL, dan Admin -->
                     @if(Auth::user()->can('isIct') || Auth::user()->can('isGL') || Auth::user()->can('isAdmin'))
@@ -59,6 +59,7 @@
                                 </p>
                             </a>
                             <ul class="nav nav-treeview">
+                            
                                 @if($isIctTechnician)
                                     <li class="nav-item">
                                         <a href="{{ route('inspeksi.icc.index') }}"
@@ -76,6 +77,7 @@
                                         </a>
                                     </li>
                                 @else
+             
                                     <li class="nav-item">
                                         <a href="{{ route('inspeksi.stavolt.index') }}"
                                             class="nav-link {{ request()->routeIs('inspeksi.stavolt.*') ? 'active' : '' }}">
@@ -112,6 +114,7 @@
                                             <p>Inspeksi SS6</p>
                                         </a>
                                     </li>
+                                    {{--
                                     <li class="nav-item">
                                         <a href="{{ route('inspeksi.ofa.index') }}"
                                             class="nav-link {{ request()->routeIs('inspeksi.ofa.*') ? 'active' : '' }}">
@@ -126,13 +129,28 @@
                                             <p>Inspeksi ICC</p>
                                         </a>
                                     </li>
+                                    --}}
                                 @endif
                             </ul>
                         </li>
                     @endif
 
                     <!-- Admin Menu Section -->
-                    @can('isAdmin')
+                   @if(Auth::user()->can('isGL') || Auth::user()->can('isAdmin'))
+                    	<li class="nav-item">
+                                        <a href="{{ route('inspeksi.ofa.index') }}"
+                                            class="nav-link {{ request()->routeIs('inspeksi.ofa.*') ? 'active' : '' }}">
+                                            <i class="nav-icon bi bi-circle"></i>
+                                            <p>Inspeksi OFA</p>
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a href="{{ route('inspeksi.icc.index') }}"
+                                            class="nav-link {{ request()->routeIs('inspeksi.icc.*') ? 'active' : '' }}">
+                                            <i class="nav-icon bi bi-circle"></i>
+                                            <p>Inspeksi ICC</p>
+                                        </a>
+                                    </li>
                         <li class="nav-item">
                             <a href="{{ route('karyawan.index') }}"
                                 class="nav-link {{ request()->routeIs('karyawan.*') ? 'active' : '' }}">
@@ -148,7 +166,8 @@
                                 <p class="sidebar-link">Manajemen Pengguna</p>
                             </a>
                         </li>
-                    @endcan
+                        
+                    @endif
 
                     <!-- Account Settings -->
                     <li class="nav-item mt-3 pt-2 border-top">
