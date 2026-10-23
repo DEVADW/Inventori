@@ -5,19 +5,22 @@ namespace App\Http\Controllers\inspeksi;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\HandlesInspectionPhoto;
 use App\Exports\InspectionExport;
+use App\Models\UnitOperasiModel;
 use App\Models\inspeksi\OfaModel;
-use App\Models\UnitsModel;
 use App\Services\ApprovalService;
 use App\Services\CloneInspeksi;
+use App\Services\InspectionPeriod;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
 use ZipArchive;
-use Illuminate\Http\JsonResponse;
 
 class OfaController extends Controller
 {
     use HandlesInspectionPhoto;
+
+    private const MODULE = 'ofa';
+
     public function __construct(protected ApprovalService $approvalService, protected CloneInspeksi $cloneInspeksi) {}
 
     public const CHECKLIST_SECTIONS = [
@@ -50,20 +53,103 @@ class OfaController extends Controller
 
     public function index(Request $request)
     {
-        $ofas = $this->filteredQuery($request)
-            ->latest()
-            ->paginate(15)
-            ->withQueryString();
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+
+        $assetQuery = UnitOperasiModel::where('ofa', true);
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $assetQuery->where(function ($q) use ($search) {
+                $q->where('code_unit', 'like', "%{$search}%")
+                    ->orWhere('type_unit', 'like', "%{$search}%")
+                    ->orWhere('serial_number_module', 'like', "%{$search}%");
+            });
+        }
+
+        $assets = $assetQuery->orderBy('code_unit')->paginate(15)->withQueryString();
+
+        $inspectionsThisPeriod = OfaModel::whereIn('code_number_unit', $assets->pluck('code_unit'))
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->get()
+            ->keyBy('code_number_unit');
+
+        $assets->each(function ($asset) use ($inspectionsThisPeriod) {
+            $asset->currentInspection = $inspectionsThisPeriod->get($asset->code_unit);
+        });
+
+        $totalAset = UnitOperasiModel::where('ofa', true)->count();
+        $totalSudah = OfaModel::whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->whereIn('code_number_unit', UnitOperasiModel::where('ofa', true)->pluck('code_unit'))
+            ->distinct()
+            ->count('code_number_unit');
 
         return view('Inspeksi.ofa.index', [
-            'ofas' => $ofas,
+            'assets' => $assets,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'totalAset' => $totalAset,
+            'totalSudah' => $totalSudah,
+            'totalBelum' => max(0, $totalAset - $totalSudah),
             'isGroupLeader' => $request->user()->jabatan === 'GL',
         ]);
     }
 
-    public function create()
+    public function riwayat(Request $request)
     {
-        return view('Inspeksi.ofa.create', $this->formData());
+        $month = (int) ($request->input('month') ?: now()->month);
+        $year = (int) ($request->input('year') ?: now()->year);
+
+        $inspections = $this->filteredQuery($request)
+            ->whereYear('tanggal_inspeksi', $year)
+            ->whereMonth('tanggal_inspeksi', $month)
+            ->latest('tanggal_inspeksi')
+            ->paginate(15)
+            ->withQueryString();
+
+        $availableYears = OfaModel::query()
+            ->selectRaw('DISTINCT YEAR(tanggal_inspeksi) as year')
+            ->whereNotNull('tanggal_inspeksi')
+            ->orderByDesc('year')
+            ->pluck('year');
+
+        if ($availableYears->isEmpty() || !$availableYears->contains($year)) {
+            $availableYears = $availableYears->push($year)->unique()->sortDesc()->values();
+        }
+
+        return view('Inspeksi.ofa.riwayat', [
+            'inspections' => $inspections,
+            'month' => $month,
+            'year' => $year,
+            'availableYears' => $availableYears,
+            'isGroupLeader' => $request->user()->jabatan === 'GL',
+        ]);
+    }
+
+    public function create(UnitOperasiModel $asset)
+    {
+        abort_unless($asset->ofa, 404);
+
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+
+        $existing = OfaModel::where('code_number_unit', $asset->code_unit)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->first();
+
+        if ($existing) {
+            return redirect()->route('inspeksi.ofa.edit', $existing)
+                ->with('success', 'Unit ini sudah diinspeksi pada periode berjalan.');
+        }
+
+        return view('Inspeksi.ofa.create', array_merge($this->formData(), [
+            'asset' => $asset,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'deviceInfo' => [
+                'code_number_unit' => $asset->code_unit,
+                'type_unit' => $asset->type_unit,
+                'serial_number_modul' => $asset->serial_number_module,
+            ],
+        ]));
     }
 
     public function export(Request $request)
@@ -80,49 +166,33 @@ class OfaController extends Controller
         ]), 'Inspeksi-OFA.xlsx');
     }
 
-    public function select2(Request $request): JsonResponse
-    {
-        $search = $request->input('q', '');
-        $perPage = 20; // jumlah item per "page" scroll select2
-
-        $query = UnitsModel::query();
-
-        if ($search !== '') {
-            $query->where(function ($q) use ($search) {
-                $q->where('code_unit', 'like', "%{$search}%")
-                    ->orWhere('model', 'like', "%{$search}%")
-                    ->orWhere('serial_number', 'like', "%{$search}%");
-            });
-        }
-
-        $units = $query->orderBy('code_unit')->paginate($perPage);
-
-        // format hasil sesuai kebutuhan select2 (id, text)
-        $results = $units->getCollection()->map(function ($unit) {
-            return [
-                'id'   => $unit->id,
-                // text ini yang akan tampil di dropdown select2
-                'text' => "{$unit->code_unit} - {$unit->model} ({$unit->serial_number})",
-                // data tambahan kalau mau dipakai di JS setelah dipilih
-                'code_unit'     => $unit->code_unit,
-                'model'         => $unit->model,
-                'serial_number' => $unit->serial_number,
-                'type_unit'     => $unit->type_unit ?? $unit->model,
-            ];
-        });
-
-        return response()->json([
-            'results'    => $results,
-            'pagination' => [
-                // true = select2 akan load "page" berikutnya saat di-scroll
-                'more' => $units->currentPage() < $units->lastPage(),
-            ],
-        ]);
-    }
-
     public function store(Request $request)
     {
-        $data = $this->validatedData($request);
+        $validated = $request->validate(array_merge(
+            ['asset_id' => ['required', 'exists:unit_operasi,id', $this->ofaAssetRule()]],
+            $this->checklistValidationRules()
+        ));
+
+        $asset = UnitOperasiModel::findOrFail($validated['asset_id']);
+
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+        $alreadyInspected = OfaModel::where('code_number_unit', $asset->code_unit)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->exists();
+
+        if ($alreadyInspected) {
+            return redirect()->route('inspeksi.ofa.index')
+                ->with('error', 'Unit ini sudah diinspeksi pada periode berjalan.');
+        }
+
+        $data = $validated;
+        unset($data['asset_id']);
+        $data['code_number_unit'] = $asset->code_unit;
+        $data['type_unit'] = $asset->type_unit;
+        $data['serial_number_modul'] = $asset->serial_number_module;
+        $data['item_pemeriksaan'] = collect($data['item_pemeriksaan'])->values()->all();
+        $data['tim_pelaksana'] = collect($data['tim_pelaksana'])->values()->all();
+        $data['diinspeksi_oleh'] = $request->user()->nrp;
 
         $ofa = OfaModel::create($data);
         $this->storeInspectionPhoto($request, $ofa);
@@ -134,7 +204,14 @@ class OfaController extends Controller
 
     public function edit(OfaModel $ofa)
     {
-        return view('Inspeksi.ofa.edit', array_merge($this->formData(), compact('ofa')));
+        return view('Inspeksi.ofa.edit', array_merge($this->formData(), [
+            'ofa' => $ofa,
+            'deviceInfo' => [
+                'code_number_unit' => $ofa->code_number_unit,
+                'type_unit' => $ofa->type_unit,
+                'serial_number_modul' => $ofa->serial_number_modul,
+            ],
+        ]));
     }
 
     public function update(Request $request, OfaModel $ofa)
@@ -145,11 +222,12 @@ class OfaController extends Controller
                 ->with('error', 'Inspeksi yang sudah di-approve tidak dapat diubah.');
         }
 
-        $data = $this->validatedData($request);
+        $data = $request->validate($this->checklistValidationRules());
+        $data['item_pemeriksaan'] = collect($data['item_pemeriksaan'])->values()->all();
+        $data['tim_pelaksana'] = collect($data['tim_pelaksana'])->values()->all();
 
         $ofa->update($data);
         $this->storeInspectionPhoto($request, $ofa);
-
 
         return redirect()
             ->route('inspeksi.ofa.index')
@@ -207,15 +285,8 @@ class OfaController extends Controller
 
         $inspections = $this->filteredQuery($request)
             ->whereNotNull('approved_at')
-            ->where(function ($query) use ($month, $year) {
-                $query->where(function ($query) use ($month, $year) {
-                    $query->where('inspection_month', $month)
-                        ->where('inspection_year', $year);
-                })->orWhere(function ($query) use ($month, $year) {
-                    $query->whereYear('tanggal_inspeksi', $year)
-                        ->whereMonth('tanggal_inspeksi', $month);
-                });
-            })
+            ->whereYear('tanggal_inspeksi', $year)
+            ->whereMonth('tanggal_inspeksi', $month)
             ->latest()
             ->get();
         if ($inspections->isEmpty()) {
@@ -243,17 +314,23 @@ class OfaController extends Controller
             ->deleteFileAfterSend(true);
     }
 
-    private function validatedData(Request $request): array
+    private function ofaAssetRule(): \Closure
     {
-        $data = $request->validate(array_merge([
+        return function ($attribute, $value, $fail) {
+            if ($value && !UnitOperasiModel::where('id', $value)->where('ofa', true)->exists()) {
+                $fail('Unit ini tidak terdaftar sebagai OFA.');
+            }
+        };
+    }
+
+    private function checklistValidationRules(): array
+    {
+        return array_merge([
             'project_name' => ['nullable', 'string', 'max:255'],
             'version' => ['nullable', 'string', 'max:100'],
             'divisi_department' => ['nullable', 'string', 'max:255'],
-            'type_unit' => ['required', 'string', 'max:255'],
             'jobsite' => ['required', 'string', 'max:255'],
             'tanggal_inspeksi' => ['required', 'date'],
-            'code_number_unit' => ['required', 'string', 'max:255'],
-            'serial_number_modul' => ['nullable', 'string', 'max:255'],
             'location' => ['required', 'string', 'max:255'],
             'catatan_tambahan' => ['nullable', 'string'],
             'item_pemeriksaan' => ['required', 'array', 'min:1'],
@@ -267,25 +344,7 @@ class OfaController extends Controller
             'tim_pelaksana.*.jabatan' => ['nullable', 'string', 'max:255'],
             'tim_pelaksana.*.departemen' => ['nullable', 'string', 'max:255'],
             'tim_pelaksana.*.perusahaan' => ['required', 'string', 'max:255'],
-        ], $this->photoValidationRules()));
-
-        $data['item_pemeriksaan'] = collect($data['item_pemeriksaan'])
-            ->values()
-            ->all();
-
-        $inspectionDate = \Carbon\Carbon::parse($data['tanggal_inspeksi']);
-        $data['inspection_month'] = $inspectionDate->month;
-        $data['inspection_year'] = $inspectionDate->year;
-
-        $inspector = $request->user();
-
-        $data['diinspeksi_oleh'] = $inspector->nrp;
-
-        $data['tim_pelaksana'] = collect($data['tim_pelaksana'])
-            ->values()
-            ->all();
-
-        return $data;
+        ], $this->photoValidationRules());
     }
 
     private function formData(): array

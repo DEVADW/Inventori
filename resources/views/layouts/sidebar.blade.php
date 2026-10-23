@@ -48,6 +48,63 @@
                         </li>
                     @endif
 
+                    <!-- Menu Dropdown Data Aset - Jabatan ICT, GL, dan Admin -->
+                    @if(Auth::user()->can('isIct') || Auth::user()->can('isGL') || Auth::user()->can('isAdmin'))
+                        <li class="nav-item {{ request()->routeIs('aset.*') ? 'menu-open' : '' }}">
+                            <a href="#" class="nav-link {{ request()->routeIs('aset.*') ? 'active' : '' }}">
+                                <i class="nav-icon bi bi-hdd-stack"></i>
+                                <p>
+                                    Data Aset
+                                    <i class="nav-arrow bi bi-chevron-right"></i>
+                                </p>
+                            </a>
+                            <ul class="nav nav-treeview">
+                                <li class="nav-item">
+                                    <a href="{{ route('aset.simcard.index') }}"
+                                        class="nav-link {{ request()->routeIs('aset.simcard.*') ? 'active' : '' }}">
+                                        <i class="nav-icon bi bi-circle"></i>
+                                        <p>Data SIM Card</p>
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a href="{{ route('aset.unitoperasi.index') }}"
+                                        class="nav-link {{ request()->routeIs('aset.unitoperasi.*') ? 'active' : '' }}">
+                                        <i class="nav-icon bi bi-circle"></i>
+                                        <p>Unit Operasi</p>
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a href="{{ route('aset.inventoristavolt.index') }}"
+                                        class="nav-link {{ request()->routeIs('aset.inventoristavolt.*') ? 'active' : '' }}">
+                                        <i class="nav-icon bi bi-circle"></i>
+                                        <p>Inventori Stavolt</p>
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a href="{{ route('aset.inventoriups.index') }}"
+                                        class="nav-link {{ request()->routeIs('aset.inventoriups.*') ? 'active' : '' }}">
+                                        <i class="nav-icon bi bi-circle"></i>
+                                        <p>Inventori UPS</p>
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a href="{{ route('aset.inventoritv.index') }}"
+                                        class="nav-link {{ request()->routeIs('aset.inventoritv.*') ? 'active' : '' }}">
+                                        <i class="nav-icon bi bi-circle"></i>
+                                        <p>Inventori TV</p>
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a href="{{ route('aset.inventoriproyektor.index') }}"
+                                        class="nav-link {{ request()->routeIs('aset.inventoriproyektor.*') ? 'active' : '' }}">
+                                        <i class="nav-icon bi bi-circle"></i>
+                                        <p>Inventori Proyektor</p>
+                                    </a>
+                                </li>
+                            </ul>
+                        </li>
+                    @endif
+
                     <!-- Menu Dropdown Inspeksi - Jabatan ICT, GL, dan Admin -->
                     @if(Auth::user()->can('isIct') || Auth::user()->can('isGL') || Auth::user()->can('isAdmin'))
                         <li class="nav-item {{ request()->routeIs('inspeksi.*') ? 'menu-open' : '' }}">
@@ -166,7 +223,17 @@
                                 <p class="sidebar-link">Manajemen Pengguna</p>
                             </a>
                         </li>
-                        
+
+                        @can('isAdmin')
+                            <li class="nav-item">
+                                <a href="{{ route('settings.inspeksi.index') }}"
+                                    class="nav-link {{ request()->routeIs('settings.inspeksi.*') ? 'active' : '' }}">
+                                    <i class="bi bi-sliders"></i>
+                                    <p class="sidebar-link">Pengaturan Inspeksi</p>
+                                </a>
+                            </li>
+                        @endcan
+
                     @endif
 
                     <!-- Account Settings -->

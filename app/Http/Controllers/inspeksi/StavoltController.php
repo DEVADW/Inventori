@@ -4,9 +4,11 @@ namespace App\Http\Controllers\inspeksi;
 
 use App\Http\Controllers\Controller;
 use App\Exports\InspectionExport;
+use App\Models\InventoriStavoltModel;
 use App\Models\inspeksi\StavoltModel;
 use App\Services\ApprovalService;
 use App\Services\CloneInspeksi;
+use App\Services\InspectionPeriod;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -15,24 +17,105 @@ use ZipArchive;
 
 class StavoltController extends Controller
 {
+    private const MODULE = 'stavolt';
+
     public function __construct(protected ApprovalService $approvalService, protected CloneInspeksi $cloneInspeksi) {}
 
     public function index(Request $request)
     {
-        $stavolts = $this->filteredQuery($request)
-            ->latest()
-            ->paginate(15)
-            ->withQueryString();
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+
+        $assetQuery = InventoriStavoltModel::query();
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $assetQuery->where(function ($q) use ($search) {
+                $q->where('no_aset', 'like', "%{$search}%")
+                    ->orWhere('merek', 'like', "%{$search}%")
+                    ->orWhere('tipe', 'like', "%{$search}%")
+                    ->orWhere('serial_number', 'like', "%{$search}%")
+                    ->orWhere('lokasi', 'like', "%{$search}%");
+            });
+        }
+
+        $assets = $assetQuery->orderBy('no_aset')->paginate(15)->withQueryString();
+
+        $inspectionsThisPeriod = StavoltModel::whereIn('nomor_aset', $assets->pluck('no_aset'))
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->get()
+            ->keyBy('nomor_aset');
+
+        $assets->each(function ($asset) use ($inspectionsThisPeriod) {
+            $asset->currentInspection = $inspectionsThisPeriod->get($asset->no_aset);
+        });
+
+        $totalAset = InventoriStavoltModel::count();
+        $totalSudah = StavoltModel::whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->whereIn('nomor_aset', InventoriStavoltModel::pluck('no_aset'))
+            ->distinct()
+            ->count('nomor_aset');
 
         return view('Inspeksi.stavolt.index', [
-            'stavolts' => $stavolts,
+            'assets' => $assets,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'totalAset' => $totalAset,
+            'totalSudah' => $totalSudah,
+            'totalBelum' => max(0, $totalAset - $totalSudah),
             'isGroupLeader' => $request->user()->jabatan === 'GL',
         ]);
     }
 
-    public function create()
+    public function riwayat(Request $request)
     {
-        return view('Inspeksi.stavolt.create');
+        $month = (int) ($request->input('month') ?: now()->month);
+        $year = (int) ($request->input('year') ?: now()->year);
+
+        $inspections = $this->filteredQuery($request)
+            ->whereYear('tanggal_inspeksi', $year)
+            ->whereMonth('tanggal_inspeksi', $month)
+            ->latest('tanggal_inspeksi')
+            ->paginate(15)
+            ->withQueryString();
+
+        $availableYears = StavoltModel::query()
+            ->selectRaw('DISTINCT YEAR(tanggal_inspeksi) as year')
+            ->whereNotNull('tanggal_inspeksi')
+            ->orderByDesc('year')
+            ->pluck('year');
+
+        if ($availableYears->isEmpty() || !$availableYears->contains($year)) {
+            $availableYears = $availableYears->push($year)->unique()->sortDesc()->values();
+        }
+
+        return view('Inspeksi.stavolt.riwayat', [
+            'inspections' => $inspections,
+            'month' => $month,
+            'year' => $year,
+            'availableYears' => $availableYears,
+            'isGroupLeader' => $request->user()->jabatan === 'GL',
+        ]);
+    }
+
+    public function create(InventoriStavoltModel $asset)
+    {
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+
+        $existing = StavoltModel::where('nomor_aset', $asset->no_aset)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->first();
+
+        if ($existing) {
+            return redirect()->route('inspeksi.stavolt.edit', $existing)
+                ->with('success', 'Aset ini sudah diinspeksi pada periode berjalan.');
+        }
+
+        return view('Inspeksi.stavolt.create', [
+            'asset' => $asset,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'deviceInfo' => $this->deviceInfoFromAsset($asset),
+        ]);
     }
 
     public function export(Request $request)
@@ -52,11 +135,33 @@ class StavoltController extends Controller
 
     public function store(Request $request)
     {
-        $data = $this->validateRequest($request);
+        $validated = $request->validate(array_merge(
+            ['asset_id' => ['required', 'exists:inventori_stavolt,id']],
+            $this->checklistValidationRules()
+        ));
+
+        $asset = InventoriStavoltModel::findOrFail($validated['asset_id']);
+
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+        $alreadyInspected = StavoltModel::where('nomor_aset', $asset->no_aset)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->exists();
+
+        if ($alreadyInspected) {
+            return redirect()->route('inspeksi.stavolt.index')
+                ->with('error', 'Aset ini sudah diinspeksi pada periode berjalan.');
+        }
+
+        $data = $validated;
+        unset($data['asset_id']);
+        $data['nomor_aset'] = $asset->no_aset;
+        $data['merek'] = $asset->merek;
+        $data['type'] = $asset->tipe;
+        $data['sn'] = $asset->serial_number;
+        $data['departemen'] = $asset->department;
+        $data['lokasi'] = $asset->lokasi;
         $data['inspektor'] = $request->user()->nrp;
 
-
-        
         $inspection = StavoltModel::create($data);
         $this->storePhoto($request, $inspection);
 
@@ -66,7 +171,10 @@ class StavoltController extends Controller
 
     public function edit(StavoltModel $stavolt)
     {
-        return view('Inspeksi.stavolt.edit', compact('stavolt'));
+        return view('Inspeksi.stavolt.edit', [
+            'stavolt' => $stavolt,
+            'deviceInfo' => $this->deviceInfoFromInspection($stavolt),
+        ]);
     }
 
     public function update(Request $request, StavoltModel $stavolt)
@@ -76,7 +184,7 @@ class StavoltController extends Controller
                 ->with('error', 'Inspeksi yang sudah di-approve tidak dapat diubah.');
         }
 
-        $data = $this->validateRequest($request);
+        $data = $request->validate($this->checklistValidationRules());
         $data['inspektor'] = $stavolt->inspektor ?: $request->user()->nrp;
         $stavolt->update($data);
 
@@ -165,21 +273,15 @@ class StavoltController extends Controller
     private function filteredQuery(Request $request)
     {
         return StavoltModel::query()->when($request->filled('search'), function ($query) use ($request) {
-            $cols = ['nomor_asset', 'merek', 'type', 'sn', 'departemen'];
+            $cols = ['nomor_aset', 'merek', 'type', 'sn', 'departemen'];
             $query->search($cols, $request->search);
         });
     }
 
-    protected function validateRequest(Request $request): array
+    private function checklistValidationRules(): array
     {
-        return $request->validate([
-            'nomor_aset' => 'nullable|string|max:255',
-            'merek' => 'nullable|string|max:255',
-            'type' => 'nullable|string|max:255',
-            'sn' => 'nullable|string|max:255',
-            'departemen' => 'nullable|string|max:255',
-            'lokasi' => 'nullable|string|max:255',
-            'tanggal_inspeksi' => 'nullable|date',
+        return [
+            'tanggal_inspeksi' => 'required|date',
             'keterangan' => 'nullable|string',
             'casing' => 'nullable|string|max:255',
             'tindakan_casing' => 'nullable|string',
@@ -193,12 +295,33 @@ class StavoltController extends Controller
             'tindakan_indikator_voltase' => 'nullable|string',
             'respon_perubahan_beban' => 'nullable|string|max:255',
             'tindakan_respon_perubahan_beban' => 'nullable|string',
-            'inspektor' => 'nullable|string|max:255',
-            'jabatan_inspektor' => 'nullable|string|max:255',
-            'diketahui_oleh' => 'nullable|string|max:255',
             'photos' => 'nullable|array',
             'photos.*' => 'image|mimes:jpeg,png,jpg,webp|max:5120',
-        ]);
+        ];
+    }
+
+    private function deviceInfoFromAsset(InventoriStavoltModel $asset): array
+    {
+        return [
+            'nomor_aset' => $asset->no_aset,
+            'merek' => $asset->merek,
+            'tipe' => $asset->tipe,
+            'serial_number' => $asset->serial_number,
+            'departemen' => $asset->department,
+            'lokasi' => $asset->lokasi,
+        ];
+    }
+
+    private function deviceInfoFromInspection(StavoltModel $stavolt): array
+    {
+        return [
+            'nomor_aset' => $stavolt->nomor_aset,
+            'merek' => $stavolt->merek,
+            'tipe' => $stavolt->type,
+            'serial_number' => $stavolt->sn,
+            'departemen' => $stavolt->departemen,
+            'lokasi' => $stavolt->lokasi,
+        ];
     }
 
     private function storePhoto(Request $request, StavoltModel $stavolt): void
@@ -216,7 +339,6 @@ class StavoltController extends Controller
         ]);
     }
 
-  
     public function clone(Request $request)
     {
         return $this->cloneInspeksi->cloneInpeksi($request, new StavoltModel(), 'inspeksi.stavolt.index');

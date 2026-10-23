@@ -9,6 +9,10 @@
 
     <div class="card-body">
 
+        <div class="d-flex justify-content-end mb-3">
+            <span class="badge bg-info-subtle text-info-emphasis">Periode: {{ $periodLabel }}</span>
+        </div>
+
         <form action="{{ route('inspeksi.ss6.store') }}" enctype="multipart/form-data" method="POST">
             @csrf
             @include('Inspeksi.ss6._form')

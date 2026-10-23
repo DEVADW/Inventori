@@ -5,9 +5,11 @@ namespace App\Http\Controllers\inspeksi;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\HandlesInspectionPhoto;
 use App\Exports\InspectionExport;
+use App\Models\UnitOperasiModel;
 use App\Models\inspeksi\Ss6Model;
 use App\Services\ApprovalService;
 use App\Services\CloneInspeksi;
+use App\Services\InspectionPeriod;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -16,24 +18,120 @@ use ZipArchive;
 class Ss6Controller extends Controller
 {
     use HandlesInspectionPhoto;
+
+    private const MODULE = 'ss6';
+
+    private const KONDISI_FIELDS = [
+        'kondisi_monitor',
+        'kondisi_bracket',
+        'kondisi_car_charger',
+        'kondisi_kabel_power',
+        'kondisi_app_lock',
+        'software_ppa_teams',
+        'kondisi_baterai',
+    ];
+
     public function __construct(protected ApprovalService $approvalService, protected CloneInspeksi $cloneInspeksi) {}
 
     public function index(Request $req)
     {
-        $dataSs6 = $this->filteredQuery($req)
-            ->latest()
-            ->paginate(15)
-            ->withQueryString();
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+
+        $assetQuery = UnitOperasiModel::where('ss6', true);
+
+        if ($req->filled('search')) {
+            $search = $req->search;
+            $assetQuery->where(function ($q) use ($search) {
+                $q->where('code_unit', 'like', "%{$search}%")
+                    ->orWhere('no_aset_tab', 'like', "%{$search}%")
+                    ->orWhere('serial_number_tab', 'like', "%{$search}%");
+            });
+        }
+
+        $assets = $assetQuery->orderBy('code_unit')->paginate(15)->withQueryString();
+
+        $inspectionsThisPeriod = Ss6Model::whereIn('no_lambung', $assets->pluck('code_unit'))
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->get()
+            ->keyBy('no_lambung');
+
+        $assets->each(function ($asset) use ($inspectionsThisPeriod) {
+            $asset->currentInspection = $inspectionsThisPeriod->get($asset->code_unit);
+        });
+
+        $totalAset = UnitOperasiModel::where('ss6', true)->count();
+        $totalSudah = Ss6Model::whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->whereIn('no_lambung', UnitOperasiModel::where('ss6', true)->pluck('code_unit'))
+            ->distinct()
+            ->count('no_lambung');
 
         return view('Inspeksi.ss6.index', [
-            'dataSs6' => $dataSs6,
+            'assets' => $assets,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'totalAset' => $totalAset,
+            'totalSudah' => $totalSudah,
+            'totalBelum' => max(0, $totalAset - $totalSudah),
             'isGroupLeader' => $req->user()->jabatan === 'GL',
         ]);
     }
 
-    public function create()
+    public function riwayat(Request $request)
     {
-        return view('Inspeksi.ss6.create');
+        $month = (int) ($request->input('month') ?: now()->month);
+        $year = (int) ($request->input('year') ?: now()->year);
+
+        $inspections = $this->filteredQuery($request)
+            ->whereYear('tanggal_inspeksi', $year)
+            ->whereMonth('tanggal_inspeksi', $month)
+            ->latest('tanggal_inspeksi')
+            ->paginate(15)
+            ->withQueryString();
+
+        $availableYears = Ss6Model::query()
+            ->selectRaw('DISTINCT YEAR(tanggal_inspeksi) as year')
+            ->whereNotNull('tanggal_inspeksi')
+            ->orderByDesc('year')
+            ->pluck('year');
+
+        if ($availableYears->isEmpty() || !$availableYears->contains($year)) {
+            $availableYears = $availableYears->push($year)->unique()->sortDesc()->values();
+        }
+
+        return view('Inspeksi.ss6.riwayat', [
+            'inspections' => $inspections,
+            'month' => $month,
+            'year' => $year,
+            'availableYears' => $availableYears,
+            'isGroupLeader' => $request->user()->jabatan === 'GL',
+        ]);
+    }
+
+    public function create(UnitOperasiModel $asset)
+    {
+        abort_unless($asset->ss6, 404);
+
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+
+        $existing = Ss6Model::where('no_lambung', $asset->code_unit)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->first();
+
+        if ($existing) {
+            return redirect()->route('inspeksi.ss6.edit', $existing)
+                ->with('success', 'Unit ini sudah diinspeksi pada periode berjalan.');
+        }
+
+        return view('Inspeksi.ss6.create', [
+            'asset' => $asset,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'deviceInfo' => [
+                'no_lambung' => $asset->code_unit,
+                'no_asset' => $asset->no_aset_tab,
+                'serial_number' => $asset->serial_number_tab,
+            ],
+        ]);
     }
 
     public function export(Request $request)
@@ -46,55 +144,31 @@ class Ss6Controller extends Controller
 
     public function store(Request $req)
     {
-        // 1. Buat array rules dasar terlebih dahulu
-        $rules = [
-            'no_asset' => 'required|string|max:255',
-            'no_lambung' => 'required|string|max:255',
-            'tanggal_inspeksi' => 'required|date',
-            'serial_number' => 'required|string|max:255',
-            'output_powercharge' => 'required|string|max:255',
+        $validated = $req->validate(array_merge(
+            ['asset_id' => ['required', 'exists:unit_operasi,id', $this->ss6AssetRule()]],
+            $this->checklistValidationRules()
+        ));
 
-            'keterangan' => 'nullable|string',
-        ];
-        $rules = array_merge($rules, $this->photoValidationRules());
+        $asset = UnitOperasiModel::findOrFail($validated['asset_id']);
 
-        // 2. Definisikan field yang ingin di-loop
-        $feilds = [
-            'kondisi_monitor',
-            'kondisi_bracket',
-            'kondisi_car_charger',
-            'kondisi_kabel_power',
-            'kondisi_app_lock',
-            'software_ppa_teams',
-            'kondisi_baterai',
-        ];
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+        $alreadyInspected = Ss6Model::where('no_lambung', $asset->code_unit)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->exists();
 
-        // 3. Masukkan rules tambahan secara dinamis lewat loop
-        foreach ($feilds as $field) {
-            // Ganti 'required|string' di bawah sesuai dengan validasi yang kamu butuhkan (misal: 'required|in:baik,rusak')
-            $rules[$field . '_ketersediaan'] = 'required|string';
-            $rules[$field . '_kondisi'] = 'required|string';
+        if ($alreadyInspected) {
+            return redirect()->route('inspeksi.ss6.index')
+                ->with('error', 'Unit ini sudah diinspeksi pada periode berjalan.');
         }
 
-        // 4. Jalankan validasi menggunakan array rules yang sudah lengkap
-        $validated = $req->validate($rules);
+        $data = $this->packKondisiFields($validated);
+        unset($data['asset_id']);
+        $data['no_lambung'] = $asset->code_unit;
+        $data['no_asset'] = $asset->no_aset_tab;
+        $data['serial_number'] = $asset->serial_number_tab;
+        $data['diinspeksi_oleh'] = $req->user()->nrp;
 
-        foreach ($feilds as $field) {
-            // Gabung menjadi array key-value, lalu di-encode ke JSON string
-            $validated[$field] = json_encode([
-                'ketersediaan' => $validated[$field . '_ketersediaan'],
-                'kondisi' => $validated[$field . '_kondisi'],
-            ]);
-
-            unset($validated[$field . '_ketersediaan']);
-            unset($validated[$field . '_kondisi']);
-        }
-
-        // 5. Tambahkan data user yang login
-        $validated['diinspeksi_oleh'] = auth()->user()->nrp;
-
-        // 6. Simpan ke database
-        $inspeksi = Ss6Model::create($validated);
+        $inspeksi = Ss6Model::create($data);
         $this->storeInspectionPhoto($req, $inspeksi);
 
         return redirect()
@@ -104,7 +178,14 @@ class Ss6Controller extends Controller
 
     public function edit(Ss6Model $inspeksi)
     {
-        return view('Inspeksi.ss6.edit', compact('inspeksi'));
+        return view('Inspeksi.ss6.edit', [
+            'inspeksi' => $inspeksi,
+            'deviceInfo' => [
+                'no_lambung' => $inspeksi->no_lambung,
+                'no_asset' => $inspeksi->no_asset,
+                'serial_number' => $inspeksi->serial_number,
+            ],
+        ]);
     }
 
     public function update(Request $req, Ss6Model $inspeksi)
@@ -114,56 +195,15 @@ class Ss6Controller extends Controller
                 ->with('error', 'Inspeksi yang sudah di-approve tidak dapat diubah.');
         }
 
-        // 1. Buat array rules dasar terlebih dahulu
-        $rules = [
-            'no_asset' => 'required|string|max:255',
-            'no_lambung' => 'required|string|max:255',
-            'tanggal_inspeksi' => 'required|date',
-            'serial_number' => 'required|string|max:255',
-            'output_powercharge' => 'required|string|max:255',
-            'keterangan' => 'nullable|string',
-        ];
-        $rules = array_merge($rules, $this->photoValidationRules());
+        $validated = $req->validate($this->checklistValidationRules());
+        $data = $this->packKondisiFields($validated);
+        $data['diinspeksi_oleh'] = $inspeksi->diinspeksi_oleh ?: $req->user()->nrp;
 
-        // 2. Definisikan field yang ingin di-loop
-        $feilds = [
-            'kondisi_monitor',
-            'kondisi_bracket',
-            'kondisi_car_charger',
-            'kondisi_kabel_power',
-            'kondisi_app_lock',
-            'software_ppa_teams',
-            'kondisi_baterai',
-        ];
-
-        // 3. Masukkan rules tambahan secara dinamis lewat loop
-        foreach ($feilds as $field) {
-            // Ganti 'required|string' di bawah sesuai dengan validasi yang kamu butuhkan (misal: 'required|in:baik,rusak')
-            $rules[$field . '_ketersediaan'] = 'required|string';
-            $rules[$field . '_kondisi'] = 'required|string';
+        if ($req->user()->jabatan === 'GL') {
+            $data['diperiksa_oleh'] = $req->user()->nama;
         }
 
-        // 4. Jalankan validasi menggunakan array rules yang sudah lengkap
-        $validated = $req->validate($rules);
-
-        foreach ($feilds as $field) {
-            // Gabung menjadi array key-value, lalu di-encode ke JSON string
-            $validated[$field] = json_encode([
-                'ketersediaan' => $validated[$field . '_ketersediaan'],
-                'kondisi' => $validated[$field . '_kondisi'],
-            ]);
-
-            unset($validated[$field . '_ketersediaan']);
-            unset($validated[$field . '_kondisi']);
-        }
-
-        $validated['diinspeksi_oleh'] = auth()->user()->nama;
-
-        if (auth()->user()->jabatan == 'GL') {
-            $validated['diperiksa_oleh'] = auth()->user()->nama;
-        }
-
-        $inspeksi->update($validated);
+        $inspeksi->update($data);
         $this->storeInspectionPhoto($req, $inspeksi);
 
         return redirect()
@@ -179,8 +219,6 @@ class Ss6Controller extends Controller
             ->route('inspeksi.ss6.index')
             ->with('success', 'Data inspeksi berhasil dihapus.');
     }
-
- 
 
     public function pdf(Ss6Model $inspeksi)
     {
@@ -256,6 +294,46 @@ class Ss6Controller extends Controller
             $cols = ['no_asset', 'no_lambung', 'serial_number', 'diperiksa_oleh', 'diinspeksi_oleh'];
             $query->search($cols, $request->search);
         });
+    }
+
+    private function ss6AssetRule(): \Closure
+    {
+        return function ($attribute, $value, $fail) {
+            if ($value && !UnitOperasiModel::where('id', $value)->where('ss6', true)->exists()) {
+                $fail('Unit ini tidak terdaftar sebagai TAB SS6.');
+            }
+        };
+    }
+
+    private function checklistValidationRules(): array
+    {
+        $rules = [
+            'tanggal_inspeksi' => 'required|date',
+            'output_powercharge' => 'required|string|max:255',
+            'keterangan' => 'nullable|string',
+        ];
+
+        foreach (self::KONDISI_FIELDS as $field) {
+            $rules[$field . '_ketersediaan'] = 'required|string';
+            $rules[$field . '_kondisi'] = 'required|string';
+        }
+
+        return array_merge($rules, $this->photoValidationRules());
+    }
+
+    private function packKondisiFields(array $validated): array
+    {
+        foreach (self::KONDISI_FIELDS as $field) {
+            $validated[$field] = json_encode([
+                'ketersediaan' => $validated[$field . '_ketersediaan'],
+                'kondisi' => $validated[$field . '_kondisi'],
+            ]);
+
+            unset($validated[$field . '_ketersediaan']);
+            unset($validated[$field . '_kondisi']);
+        }
+
+        return $validated;
     }
 
     public function clone(Request $request)

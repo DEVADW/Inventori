@@ -5,9 +5,11 @@ namespace App\Http\Controllers\inspeksi;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\HandlesInspectionPhoto;
 use App\Exports\InspectionExport;
+use App\Models\InventoriUpsModel;
 use App\Models\inspeksi\UpsModel;
 use App\Services\ApprovalService;
 use App\Services\CloneInspeksi;
+use App\Services\InspectionPeriod;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -16,27 +18,108 @@ use ZipArchive;
 class UpsController extends Controller
 {
     use HandlesInspectionPhoto;
+
+    private const MODULE = 'ups';
+
     public function __construct(protected ApprovalService $approvalService, protected CloneInspeksi $cloneInspeksi)
     {
     }
 
     public function index(Request $request)
     {
-        $ups = $this->filteredQuery($request)
-            ->latest()
-            ->paginate(15)
-            ->withQueryString();
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
 
+        $assetQuery = InventoriUpsModel::query();
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $assetQuery->where(function ($q) use ($search) {
+                $q->where('no_aset', 'like', "%{$search}%")
+                    ->orWhere('merek', 'like', "%{$search}%")
+                    ->orWhere('tipe', 'like', "%{$search}%")
+                    ->orWhere('serial_number', 'like', "%{$search}%")
+                    ->orWhere('lokasi', 'like', "%{$search}%");
+            });
+        }
+
+        $assets = $assetQuery->orderBy('no_aset')->paginate(15)->withQueryString();
+
+        $inspectionsThisPeriod = UpsModel::whereIn('nomor_aset', $assets->pluck('no_aset'))
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->get()
+            ->keyBy('nomor_aset');
+
+        $assets->each(function ($asset) use ($inspectionsThisPeriod) {
+            $asset->currentInspection = $inspectionsThisPeriod->get($asset->no_aset);
+        });
+
+        $totalAset = InventoriUpsModel::count();
+        $totalSudah = UpsModel::whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->whereIn('nomor_aset', InventoriUpsModel::pluck('no_aset'))
+            ->distinct()
+            ->count('nomor_aset');
 
         return view('Inspeksi.ups.index', [
-            'ups' => $ups,
+            'assets' => $assets,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'totalAset' => $totalAset,
+            'totalSudah' => $totalSudah,
+            'totalBelum' => max(0, $totalAset - $totalSudah),
             'isGroupLeader' => $request->user()->jabatan === 'GL',
         ]);
     }
 
-    public function create()
+    public function riwayat(Request $request)
     {
-        return view('Inspeksi.ups.create');
+        $month = (int) ($request->input('month') ?: now()->month);
+        $year = (int) ($request->input('year') ?: now()->year);
+
+        $inspections = $this->filteredQuery($request)
+            ->whereYear('tanggal_inspeksi', $year)
+            ->whereMonth('tanggal_inspeksi', $month)
+            ->latest('tanggal_inspeksi')
+            ->paginate(15)
+            ->withQueryString();
+
+        $availableYears = UpsModel::query()
+            ->selectRaw('DISTINCT YEAR(tanggal_inspeksi) as year')
+            ->whereNotNull('tanggal_inspeksi')
+            ->orderByDesc('year')
+            ->pluck('year');
+
+        if ($availableYears->isEmpty() || !$availableYears->contains($year)) {
+            $availableYears = $availableYears->push($year)->unique()->sortDesc()->values();
+        }
+
+        return view('Inspeksi.ups.riwayat', [
+            'inspections' => $inspections,
+            'month' => $month,
+            'year' => $year,
+            'availableYears' => $availableYears,
+            'isGroupLeader' => $request->user()->jabatan === 'GL',
+        ]);
+    }
+
+    public function create(InventoriUpsModel $asset)
+    {
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+
+        $existing = UpsModel::where('nomor_aset', $asset->no_aset)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->first();
+
+        if ($existing) {
+            return redirect()->route('inspeksi.ups.edit', $existing)
+                ->with('success', 'Aset ini sudah diinspeksi pada periode berjalan.');
+        }
+
+        return view('Inspeksi.ups.create', [
+            'asset' => $asset,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'deviceInfo' => $this->deviceInfoFromAsset($asset),
+        ]);
     }
 
     public function export(Request $request)
@@ -50,7 +133,31 @@ class UpsController extends Controller
 
     public function store(Request $request)
     {
-        $data = $this->validateRequest($request);
+        $validated = $request->validate(array_merge(
+            ['asset_id' => ['required', 'exists:inventori_ups,id']],
+            $this->checklistValidationRules()
+        ));
+
+        $asset = InventoriUpsModel::findOrFail($validated['asset_id']);
+
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+        $alreadyInspected = UpsModel::where('nomor_aset', $asset->no_aset)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->exists();
+
+        if ($alreadyInspected) {
+            return redirect()->route('inspeksi.ups.index')
+                ->with('error', 'Aset ini sudah diinspeksi pada periode berjalan.');
+        }
+
+        $data = $validated;
+        unset($data['asset_id']);
+        $data['nomor_aset'] = $asset->no_aset;
+        $data['merek'] = $asset->merek;
+        $data['type'] = $asset->tipe;
+        $data['sn'] = $asset->serial_number;
+        $data['departemen'] = $asset->department;
+        $data['lokasi'] = $asset->lokasi;
         $data['inspektor'] = $request->user()->nrp;
 
         $ups = UpsModel::create($data);
@@ -62,7 +169,10 @@ class UpsController extends Controller
 
     public function edit(UpsModel $ups)
     {
-        return view('Inspeksi.ups.edit', compact('ups'));
+        return view('Inspeksi.ups.edit', [
+            'ups' => $ups,
+            'deviceInfo' => $this->deviceInfoFromInspection($ups),
+        ]);
     }
 
     public function update(Request $request, UpsModel $ups)
@@ -72,7 +182,7 @@ class UpsController extends Controller
                 ->with('error', 'Inspeksi yang sudah di-approve tidak dapat diubah.');
         }
 
-        $data = $this->validateRequest($request);
+        $data = $request->validate($this->checklistValidationRules());
         $data['inspektor'] = $ups->inspektor ?: $request->user()->nrp;
 
         $ups->update($data);
@@ -166,16 +276,10 @@ class UpsController extends Controller
         });
     }
 
-    protected function validateRequest(Request $request): array
+    private function checklistValidationRules(): array
     {
-        return $request->validate(array_merge([
-            'nomor_aset' => 'nullable|string|max:255',
-            'merek' => 'nullable|string|max:255',
-            'type' => 'nullable|string|max:255',
-            'sn' => 'nullable|string|max:255',
-            'departemen' => 'nullable|string|max:255',
-            'lokasi' => 'nullable|string|max:255',
-            'tanggal_inspeksi' => 'nullable|date',
+        return array_merge([
+            'tanggal_inspeksi' => 'required|date',
             'keterangan' => 'nullable|string',
             'casing' => 'nullable|string|max:255',
             'tindakan_casing' => 'nullable|string',
@@ -193,14 +297,35 @@ class UpsController extends Controller
             'tindakan_respon_kehilangan_daya' => 'nullable|string',
             'fuse' => 'nullable|string|max:255',
             'tindakan_fuse' => 'nullable|string',
-            'inspektor' => 'nullable|string|max:255',
-            'diketahui_oleh' => 'nullable|string|max:255',
-        ], $this->photoValidationRules()));
+        ], $this->photoValidationRules());
     }
 
-    public function clone(Request $request) {
-      
+    private function deviceInfoFromAsset(InventoriUpsModel $asset): array
+    {
+        return [
+            'nomor_aset' => $asset->no_aset,
+            'merek' => $asset->merek,
+            'tipe' => $asset->tipe,
+            'serial_number' => $asset->serial_number,
+            'departemen' => $asset->department,
+            'lokasi' => $asset->lokasi,
+        ];
+    }
 
+    private function deviceInfoFromInspection(UpsModel $ups): array
+    {
+        return [
+            'nomor_aset' => $ups->nomor_aset,
+            'merek' => $ups->merek,
+            'tipe' => $ups->type,
+            'serial_number' => $ups->sn,
+            'departemen' => $ups->departemen,
+            'lokasi' => $ups->lokasi,
+        ];
+    }
+
+    public function clone(Request $request)
+    {
         return $this->cloneInspeksi->cloneInpeksi($request, new UpsModel(), 'inspeksi.ups.index');
     }
 }

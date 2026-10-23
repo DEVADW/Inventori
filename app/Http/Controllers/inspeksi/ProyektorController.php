@@ -5,9 +5,11 @@ namespace App\Http\Controllers\inspeksi;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\HandlesInspectionPhoto;
 use App\Exports\InspectionExport;
+use App\Models\InventoriProyektorModel;
 use App\Models\inspeksi\ProyektorModel;
 use App\Services\ApprovalService;
 use App\Services\CloneInspeksi;
+use App\Services\InspectionPeriod;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -16,26 +18,108 @@ use ZipArchive;
 class ProyektorController extends Controller
 {
     use HandlesInspectionPhoto;
+
+    private const MODULE = 'proyektor';
+
     public function __construct(protected ApprovalService $approvalService, protected CloneInspeksi $cloneInspeksi)
     {
     }
 
     public function index(Request $request)
     {
-        $proyektors = $this->filteredQuery($request)
-            ->latest()
-            ->paginate(15)
-            ->withQueryString();
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+
+        $assetQuery = InventoriProyektorModel::query();
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $assetQuery->where(function ($q) use ($search) {
+                $q->where('no_aset', 'like', "%{$search}%")
+                    ->orWhere('merek', 'like', "%{$search}%")
+                    ->orWhere('tipe', 'like', "%{$search}%")
+                    ->orWhere('serial_number', 'like', "%{$search}%")
+                    ->orWhere('lokasi', 'like', "%{$search}%");
+            });
+        }
+
+        $assets = $assetQuery->orderBy('no_aset')->paginate(15)->withQueryString();
+
+        $inspectionsThisPeriod = ProyektorModel::whereIn('nomor_aset', $assets->pluck('no_aset'))
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->get()
+            ->keyBy('nomor_aset');
+
+        $assets->each(function ($asset) use ($inspectionsThisPeriod) {
+            $asset->currentInspection = $inspectionsThisPeriod->get($asset->no_aset);
+        });
+
+        $totalAset = InventoriProyektorModel::count();
+        $totalSudah = ProyektorModel::whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->whereIn('nomor_aset', InventoriProyektorModel::pluck('no_aset'))
+            ->distinct()
+            ->count('nomor_aset');
 
         return view('Inspeksi.proyektor.index', [
-            'proyektors' => $proyektors,
+            'assets' => $assets,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'totalAset' => $totalAset,
+            'totalSudah' => $totalSudah,
+            'totalBelum' => max(0, $totalAset - $totalSudah),
             'isGroupLeader' => $request->user()->jabatan === 'GL',
         ]);
     }
 
-    public function create()
+    public function riwayat(Request $request)
     {
-        return view('Inspeksi.proyektor.create');
+        $month = (int) ($request->input('month') ?: now()->month);
+        $year = (int) ($request->input('year') ?: now()->year);
+
+        $inspections = $this->filteredQuery($request)
+            ->whereYear('tanggal_inspeksi', $year)
+            ->whereMonth('tanggal_inspeksi', $month)
+            ->latest('tanggal_inspeksi')
+            ->paginate(15)
+            ->withQueryString();
+
+        $availableYears = ProyektorModel::query()
+            ->selectRaw('DISTINCT YEAR(tanggal_inspeksi) as year')
+            ->whereNotNull('tanggal_inspeksi')
+            ->orderByDesc('year')
+            ->pluck('year');
+
+        if ($availableYears->isEmpty() || !$availableYears->contains($year)) {
+            $availableYears = $availableYears->push($year)->unique()->sortDesc()->values();
+        }
+
+        return view('Inspeksi.proyektor.riwayat', [
+            'inspections' => $inspections,
+            'month' => $month,
+            'year' => $year,
+            'availableYears' => $availableYears,
+            'isGroupLeader' => $request->user()->jabatan === 'GL',
+        ]);
+    }
+
+    public function create(InventoriProyektorModel $asset)
+    {
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+
+        $existing = ProyektorModel::where('nomor_aset', $asset->no_aset)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->first();
+
+        if ($existing) {
+            return redirect()->route('inspeksi.proyektor.edit', $existing)
+                ->with('success', 'Aset ini sudah diinspeksi pada periode berjalan.');
+        }
+
+        return view('Inspeksi.proyektor.create', [
+            'asset' => $asset,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'deviceInfo' => $this->deviceInfoFromAsset($asset),
+        ]);
     }
 
     public function export(Request $request)
@@ -49,8 +133,33 @@ class ProyektorController extends Controller
 
     public function store(Request $request)
     {
-        $data = $this->validateRequest($request);
+        $validated = $request->validate(array_merge(
+            ['asset_id' => ['required', 'exists:inventori_proyektor,id']],
+            $this->checklistValidationRules()
+        ));
+
+        $asset = InventoriProyektorModel::findOrFail($validated['asset_id']);
+
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+        $alreadyInspected = ProyektorModel::where('nomor_aset', $asset->no_aset)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->exists();
+
+        if ($alreadyInspected) {
+            return redirect()->route('inspeksi.proyektor.index')
+                ->with('error', 'Aset ini sudah diinspeksi pada periode berjalan.');
+        }
+
+        $data = $validated;
+        unset($data['asset_id']);
+        $data['nomor_aset'] = $asset->no_aset;
+        $data['merek'] = $asset->merek;
+        $data['type'] = $asset->tipe;
+        $data['sn'] = $asset->serial_number;
+        $data['departemen'] = $asset->department;
+        $data['lokasi'] = $asset->lokasi;
         $data['inspektor'] = $request->user()->nrp;
+
         $proyektor = ProyektorModel::create($data);
         $this->storeInspectionPhoto($request, $proyektor);
 
@@ -59,7 +168,10 @@ class ProyektorController extends Controller
 
     public function edit(ProyektorModel $proyektor)
     {
-        return view('Inspeksi.proyektor.edit', compact('proyektor'));
+        return view('Inspeksi.proyektor.edit', [
+            'proyektor' => $proyektor,
+            'deviceInfo' => $this->deviceInfoFromInspection($proyektor),
+        ]);
     }
 
     public function update(Request $request, ProyektorModel $proyektor)
@@ -69,8 +181,9 @@ class ProyektorController extends Controller
                 ->with('error', 'Inspeksi yang sudah di-approve tidak dapat diubah.');
         }
 
-        $data = $proyektor->inspektor ?: $request->user()->nrp;
-        $proyektor->update(array_merge($this->validateRequest($request), ['inspektor' => $data]));
+        $data = $request->validate($this->checklistValidationRules());
+        $data['inspektor'] = $proyektor->inspektor ?: $request->user()->nrp;
+        $proyektor->update($data);
         $this->storeInspectionPhoto($request, $proyektor);
 
         return redirect()->route('inspeksi.proyektor.index')->with('success', 'Data inspeksi proyektor berhasil diperbarui.');
@@ -159,24 +272,53 @@ class ProyektorController extends Controller
         });
     }
 
-    private function validateRequest(Request $request): array
+    private function checklistValidationRules(): array
     {
-        return $request->validate(array_merge([
-            'nomor_aset' => 'nullable|string|max:255', 'departemen' => 'nullable|string|max:255',
-            'merek' => 'nullable|string|max:255', 'lokasi' => 'nullable|string|max:255',
-            'type' => 'nullable|string|max:255', 'tanggal_inspeksi' => 'nullable|date',
-            'sn' => 'nullable|string|max:255', 'kondisi_casing' => 'nullable|string|max:255',
-            'tindakan_kondisi_casing' => 'nullable|string', 'kebersihan' => 'nullable|string|max:255',
-            'tindakan_kebersihan' => 'nullable|string', 'kabel_adaptor' => 'nullable|string|max:255',
-            'tindakan_kabel_adaptor' => 'nullable|string', 'lensa_proyektor' => 'nullable|string|max:255',
-            'tindakan_lensa_proyektor' => 'nullable|string', 'indikator_lampu' => 'nullable|string|max:255',
-            'tindakan_indikator_lampu' => 'nullable|string', 'fokus_zoom' => 'nullable|string|max:255',
-            'tindakan_fokus_zoom' => 'nullable|string', 'kecerahan_kontras' => 'nullable|string|max:255',
-            'tindakan_kecerahan_kontras' => 'nullable|string', 'koneksi_input_hdmi' => 'nullable|string|max:255',
-            'koneksi_input_vga' => 'nullable|string|max:255', 'koneksi_input_usb' => 'nullable|string|max:255',
-            'keterangan' => 'nullable|string', 'inspektor' => 'nullable|string|max:255',
-            'jabatan_inspektor' => 'nullable|string|max:255', 'diketahui_oleh' => 'nullable|string|max:255',
-        ], $this->photoValidationRules()));
+        return array_merge([
+            'tanggal_inspeksi' => 'required|date',
+            'keterangan' => 'nullable|string',
+            'kondisi_casing' => 'nullable|string|max:255',
+            'tindakan_kondisi_casing' => 'nullable|string',
+            'kebersihan' => 'nullable|string|max:255',
+            'tindakan_kebersihan' => 'nullable|string',
+            'kabel_adaptor' => 'nullable|string|max:255',
+            'tindakan_kabel_adaptor' => 'nullable|string',
+            'lensa_proyektor' => 'nullable|string|max:255',
+            'tindakan_lensa_proyektor' => 'nullable|string',
+            'indikator_lampu' => 'nullable|string|max:255',
+            'tindakan_indikator_lampu' => 'nullable|string',
+            'fokus_zoom' => 'nullable|string|max:255',
+            'tindakan_fokus_zoom' => 'nullable|string',
+            'kecerahan_kontras' => 'nullable|string|max:255',
+            'tindakan_kecerahan_kontras' => 'nullable|string',
+            'koneksi_input_hdmi' => 'nullable|string|max:255',
+            'koneksi_input_vga' => 'nullable|string|max:255',
+            'koneksi_input_usb' => 'nullable|string|max:255',
+        ], $this->photoValidationRules());
+    }
+
+    private function deviceInfoFromAsset(InventoriProyektorModel $asset): array
+    {
+        return [
+            'nomor_aset' => $asset->no_aset,
+            'merek' => $asset->merek,
+            'tipe' => $asset->tipe,
+            'serial_number' => $asset->serial_number,
+            'departemen' => $asset->department,
+            'lokasi' => $asset->lokasi,
+        ];
+    }
+
+    private function deviceInfoFromInspection(ProyektorModel $proyektor): array
+    {
+        return [
+            'nomor_aset' => $proyektor->nomor_aset,
+            'merek' => $proyektor->merek,
+            'tipe' => $proyektor->type,
+            'serial_number' => $proyektor->sn,
+            'departemen' => $proyektor->departemen,
+            'lokasi' => $proyektor->lokasi,
+        ];
     }
 
     public function clone(Request $request)

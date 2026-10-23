@@ -5,9 +5,11 @@ namespace App\Http\Controllers\inspeksi;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\HandlesInspectionPhoto;
 use App\Exports\InspectionExport;
+use App\Models\InventoriTvModel;
 use App\Models\inspeksi\MonitorModel;
 use App\Services\ApprovalService;
 use App\Services\CloneInspeksi;
+use App\Services\InspectionPeriod;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -16,26 +18,108 @@ use ZipArchive;
 class MonitorController extends Controller
 {
     use HandlesInspectionPhoto;
+
+    private const MODULE = 'monitor';
+
     public function __construct(protected ApprovalService $approvalService, protected CloneInspeksi $cloneInspeksi)
     {
     }
 
     public function index(Request $request)
     {
-        $monitors = $this->filteredQuery($request)
-            ->latest()
-            ->paginate(15)
-            ->withQueryString();
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+
+        $assetQuery = InventoriTvModel::query();
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $assetQuery->where(function ($q) use ($search) {
+                $q->where('no_aset', 'like', "%{$search}%")
+                    ->orWhere('merek', 'like', "%{$search}%")
+                    ->orWhere('tipe', 'like', "%{$search}%")
+                    ->orWhere('serial_number', 'like', "%{$search}%")
+                    ->orWhere('lokasi', 'like', "%{$search}%");
+            });
+        }
+
+        $assets = $assetQuery->orderBy('no_aset')->paginate(15)->withQueryString();
+
+        $inspectionsThisPeriod = MonitorModel::whereIn('nomor_aset', $assets->pluck('no_aset'))
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->get()
+            ->keyBy('nomor_aset');
+
+        $assets->each(function ($asset) use ($inspectionsThisPeriod) {
+            $asset->currentInspection = $inspectionsThisPeriod->get($asset->no_aset);
+        });
+
+        $totalAset = InventoriTvModel::count();
+        $totalSudah = MonitorModel::whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->whereIn('nomor_aset', InventoriTvModel::pluck('no_aset'))
+            ->distinct()
+            ->count('nomor_aset');
 
         return view('Inspeksi.monitor.index', [
-            'monitors' => $monitors,
+            'assets' => $assets,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'totalAset' => $totalAset,
+            'totalSudah' => $totalSudah,
+            'totalBelum' => max(0, $totalAset - $totalSudah),
             'isGroupLeader' => $request->user()->jabatan === 'GL',
         ]);
     }
 
-    public function create()
+    public function riwayat(Request $request)
     {
-        return view('Inspeksi.monitor.create');
+        $month = (int) ($request->input('month') ?: now()->month);
+        $year = (int) ($request->input('year') ?: now()->year);
+
+        $inspections = $this->filteredQuery($request)
+            ->whereYear('tanggal_inspeksi', $year)
+            ->whereMonth('tanggal_inspeksi', $month)
+            ->latest('tanggal_inspeksi')
+            ->paginate(15)
+            ->withQueryString();
+
+        $availableYears = MonitorModel::query()
+            ->selectRaw('DISTINCT YEAR(tanggal_inspeksi) as year')
+            ->whereNotNull('tanggal_inspeksi')
+            ->orderByDesc('year')
+            ->pluck('year');
+
+        if ($availableYears->isEmpty() || !$availableYears->contains($year)) {
+            $availableYears = $availableYears->push($year)->unique()->sortDesc()->values();
+        }
+
+        return view('Inspeksi.monitor.riwayat', [
+            'inspections' => $inspections,
+            'month' => $month,
+            'year' => $year,
+            'availableYears' => $availableYears,
+            'isGroupLeader' => $request->user()->jabatan === 'GL',
+        ]);
+    }
+
+    public function create(InventoriTvModel $asset)
+    {
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+
+        $existing = MonitorModel::where('nomor_aset', $asset->no_aset)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->first();
+
+        if ($existing) {
+            return redirect()->route('inspeksi.monitor.edit', $existing)
+                ->with('success', 'Aset ini sudah diinspeksi pada periode berjalan.');
+        }
+
+        return view('Inspeksi.monitor.create', [
+            'asset' => $asset,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'deviceInfo' => $this->deviceInfoFromAsset($asset),
+        ]);
     }
 
     public function export(Request $request)
@@ -49,17 +133,45 @@ class MonitorController extends Controller
 
     public function store(Request $request)
     {
-        $data = $this->validateRequest($request);
+        $validated = $request->validate(array_merge(
+            ['asset_id' => ['required', 'exists:inventori_tv,id']],
+            $this->checklistValidationRules()
+        ));
+
+        $asset = InventoriTvModel::findOrFail($validated['asset_id']);
+
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+        $alreadyInspected = MonitorModel::where('nomor_aset', $asset->no_aset)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->exists();
+
+        if ($alreadyInspected) {
+            return redirect()->route('inspeksi.monitor.index')
+                ->with('error', 'Aset ini sudah diinspeksi pada periode berjalan.');
+        }
+
+        $data = $validated;
+        unset($data['asset_id']);
+        $data['nomor_aset'] = $asset->no_aset;
+        $data['merek'] = $asset->merek;
+        $data['type'] = $asset->tipe;
+        $data['sn'] = $asset->serial_number;
+        $data['departemen'] = $asset->department;
+        $data['lokasi'] = $asset->lokasi;
         $data['inspektor'] = $request->user()->nrp;
+
         $monitor = MonitorModel::create($data);
         $this->storeInspectionPhoto($request, $monitor);
 
-        return redirect()->route('Inspeksi.monitor.index')->with('success', 'Data inspeksi monitor/TV berhasil disimpan.');
+        return redirect()->route('inspeksi.monitor.index')->with('success', 'Data inspeksi monitor/TV berhasil disimpan.');
     }
 
     public function edit(MonitorModel $monitor)
     {
-        return view('Inspeksi.monitor.edit', compact('monitor'));
+        return view('Inspeksi.monitor.edit', [
+            'monitor' => $monitor,
+            'deviceInfo' => $this->deviceInfoFromInspection($monitor),
+        ]);
     }
 
     public function update(Request $request, MonitorModel $monitor)
@@ -69,19 +181,19 @@ class MonitorController extends Controller
                 ->with('error', 'Inspeksi yang sudah di-approve tidak dapat diubah.');
         }
 
-        $data = $this->validateRequest($request);
+        $data = $request->validate($this->checklistValidationRules());
         $data['inspektor'] = $monitor->inspektor ?: $request->user()->nrp;
         $monitor->update($data);
         $this->storeInspectionPhoto($request, $monitor);
 
-        return redirect()->route('Inspeksi.monitor.index')->with('success', 'Data inspeksi monitor/TV berhasil diperbarui.');
+        return redirect()->route('inspeksi.monitor.index')->with('success', 'Data inspeksi monitor/TV berhasil diperbarui.');
     }
 
     public function destroy(MonitorModel $monitor)
     {
         $monitor->delete();
 
-        return redirect()->route('Inspeksi.monitor.index')->with('success', 'Data inspeksi monitor/TV berhasil dihapus.');
+        return redirect()->route('inspeksi.monitor.index')->with('success', 'Data inspeksi monitor/TV berhasil dihapus.');
     }
 
     public function pdf(MonitorModel $monitor)
@@ -113,7 +225,7 @@ class MonitorController extends Controller
             return back()->with($result['type'], $result['message']);
         }
 
-        return redirect()->route('Inspeksi.monitor.index', $request->only('search'))
+        return redirect()->route('inspeksi.monitor.index', $request->only('search'))
             ->with($result['type'], $result['message']);
     }
 
@@ -160,25 +272,50 @@ class MonitorController extends Controller
         });
     }
 
-    private function validateRequest(Request $request): array
+    private function checklistValidationRules(): array
     {
-        return $request->validate(array_merge([
-            'nomor_aset' => 'nullable|string|max:255', 'merek' => 'nullable|string|max:255',
-            'type' => 'nullable|string|max:255', 'sn' => 'nullable|string|max:255',
-            'departemen' => 'nullable|string|max:255', 'lokasi' => 'nullable|string|max:255',
-            'tanggal_inspeksi' => 'nullable|date', 'keterangan' => 'nullable|string',
-            'tampilan_layer' => 'nullable|string|max:255', 'kabel_power' => 'nullable|string|max:255',
-            'bracket_dudukan' => 'nullable|string|max:255', 'kebersihan' => 'nullable|string|max:255',
-            'stop_kontak' => 'nullable|string|max:255', 'tindakan_tampilan_layer' => 'nullable|string',
-            'tindakan_kabel_power' => 'nullable|string', 'tindakan_bracket_dudukan' => 'nullable|string',
-            'tindakan_kebersihan' => 'nullable|string', 'tindakan_stop_kontak' => 'nullable|string',
-            'inspektor' => 'nullable|string|max:255', 'jabatan_inspektor' => 'nullable|string|max:255',
-            'diketahui_oleh' => 'nullable|string|max:255',
-        ], $this->photoValidationRules()));
+        return array_merge([
+            'tanggal_inspeksi' => 'required|date',
+            'keterangan' => 'nullable|string',
+            'tampilan_layer' => 'nullable|string|max:255',
+            'tindakan_tampilan_layer' => 'nullable|string',
+            'kabel_power' => 'nullable|string|max:255',
+            'tindakan_kabel_power' => 'nullable|string',
+            'bracket_dudukan' => 'nullable|string|max:255',
+            'tindakan_bracket_dudukan' => 'nullable|string',
+            'kebersihan' => 'nullable|string|max:255',
+            'tindakan_kebersihan' => 'nullable|string',
+            'stop_kontak' => 'nullable|string|max:255',
+            'tindakan_stop_kontak' => 'nullable|string',
+        ], $this->photoValidationRules());
+    }
+
+    private function deviceInfoFromAsset(InventoriTvModel $asset): array
+    {
+        return [
+            'nomor_aset' => $asset->no_aset,
+            'merek' => $asset->merek,
+            'tipe' => $asset->tipe,
+            'serial_number' => $asset->serial_number,
+            'departemen' => $asset->department,
+            'lokasi' => $asset->lokasi,
+        ];
+    }
+
+    private function deviceInfoFromInspection(MonitorModel $monitor): array
+    {
+        return [
+            'nomor_aset' => $monitor->nomor_aset,
+            'merek' => $monitor->merek,
+            'tipe' => $monitor->type,
+            'serial_number' => $monitor->sn,
+            'departemen' => $monitor->departemen,
+            'lokasi' => $monitor->lokasi,
+        ];
     }
 
     public function clone(Request $request)
     {
-        return $this->cloneInspeksi->cloneInpeksi($request, new MonitorModel(), 'Inspeksi.monitor.index');
+        return $this->cloneInspeksi->cloneInpeksi($request, new MonitorModel(), 'inspeksi.monitor.index');
     }
 }

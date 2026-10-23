@@ -5,12 +5,12 @@ namespace App\Http\Controllers\inspeksi;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\HandlesInspectionPhoto;
 use App\Exports\InspectionExport;
-use App\Models\IccUnitModels;
+use App\Models\UnitOperasiModel;
 use App\Models\inspeksi\IccModel;
 use App\Services\ApprovalService;
 use App\Services\CloneInspeksi;
+use App\Services\InspectionPeriod;
 use Barryvdh\DomPDF\Facade\Pdf;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
 use ZipArchive;
@@ -18,6 +18,9 @@ use ZipArchive;
 class IccController extends Controller
 {
     use HandlesInspectionPhoto;
+
+    private const MODULE = 'icc';
+
     /** Item dan nomor mengikuti PPA-ADRO-F-ICTMD-035. Nomor 12 memang tidak ada pada form sumber. */
     public const CHECKLIST_ITEMS = [
         1 => 'Kamera: Lensa bersih, tidak tergores',
@@ -39,17 +42,101 @@ class IccController extends Controller
 
     public function index(Request $request)
     {
-        $iccs = $this->filteredQuery($request)->latest()->paginate(15)->withQueryString();
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+
+        $assetQuery = UnitOperasiModel::where('icc', true);
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $assetQuery->where(function ($q) use ($search) {
+                $q->where('code_unit', 'like', "%{$search}%")
+                    ->orWhere('type_unit', 'like', "%{$search}%");
+            });
+        }
+
+        $assets = $assetQuery->orderBy('code_unit')->paginate(15)->withQueryString();
+
+        $inspectionsThisPeriod = IccModel::whereIn('no_lambung_unit', $assets->pluck('code_unit'))
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->get()
+            ->keyBy('no_lambung_unit');
+
+        $assets->each(function ($asset) use ($inspectionsThisPeriod) {
+            $asset->currentInspection = $inspectionsThisPeriod->get($asset->code_unit);
+        });
+
+        $totalAset = UnitOperasiModel::where('icc', true)->count();
+        $totalSudah = IccModel::whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->whereIn('no_lambung_unit', UnitOperasiModel::where('icc', true)->pluck('code_unit'))
+            ->distinct()
+            ->count('no_lambung_unit');
 
         return view('Inspeksi.icc.index', [
-            'iccs' => $iccs,
+            'assets' => $assets,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'totalAset' => $totalAset,
+            'totalSudah' => $totalSudah,
+            'totalBelum' => max(0, $totalAset - $totalSudah),
             'isGroupLeader' => $request->user()->jabatan === 'GL',
         ]);
     }
 
-    public function create()
+    public function riwayat(Request $request)
     {
-        return view('Inspeksi.icc.create', ['checklistItems' => self::CHECKLIST_ITEMS]);
+        $month = (int) ($request->input('month') ?: now()->month);
+        $year = (int) ($request->input('year') ?: now()->year);
+
+        $inspections = $this->filteredQuery($request)
+            ->whereYear('tanggal_inspeksi', $year)
+            ->whereMonth('tanggal_inspeksi', $month)
+            ->latest('tanggal_inspeksi')
+            ->paginate(15)
+            ->withQueryString();
+
+        $availableYears = IccModel::query()
+            ->selectRaw('DISTINCT YEAR(tanggal_inspeksi) as year')
+            ->whereNotNull('tanggal_inspeksi')
+            ->orderByDesc('year')
+            ->pluck('year');
+
+        if ($availableYears->isEmpty() || !$availableYears->contains($year)) {
+            $availableYears = $availableYears->push($year)->unique()->sortDesc()->values();
+        }
+
+        return view('Inspeksi.icc.riwayat', [
+            'inspections' => $inspections,
+            'month' => $month,
+            'year' => $year,
+            'availableYears' => $availableYears,
+            'isGroupLeader' => $request->user()->jabatan === 'GL',
+        ]);
+    }
+
+    public function create(UnitOperasiModel $asset)
+    {
+        abort_unless($asset->icc, 404);
+
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+
+        $existing = IccModel::where('no_lambung_unit', $asset->code_unit)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->latest('tanggal_inspeksi')
+            ->first();
+
+        if ($existing) {
+            return redirect()->route('inspeksi.icc.edit', $existing)
+                ->with('success', 'Unit ini sudah diinspeksi pada periode berjalan.');
+        }
+
+        return view('Inspeksi.icc.create', [
+            'asset' => $asset,
+            'checklistItems' => self::CHECKLIST_ITEMS,
+            'periodLabel' => InspectionPeriod::label(self::MODULE),
+            'deviceInfo' => [
+                'no_lambung_unit' => $asset->code_unit,
+            ],
+        ]);
     }
 
     public function export(Request $request)
@@ -63,7 +150,30 @@ class IccController extends Controller
 
     public function store(Request $request)
     {
-        $icc = IccModel::create($this->validatedData($request));
+        $validated = $request->validate(array_merge(
+            ['asset_id' => ['required', 'exists:unit_operasi,id', $this->iccAssetRule()]],
+            $this->checklistValidationRules()
+        ));
+
+        $asset = UnitOperasiModel::findOrFail($validated['asset_id']);
+
+        [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
+        $alreadyInspected = IccModel::where('no_lambung_unit', $asset->code_unit)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->exists();
+
+        if ($alreadyInspected) {
+            return redirect()->route('inspeksi.icc.index')
+                ->with('error', 'Unit ini sudah diinspeksi pada periode berjalan.');
+        }
+
+        $data = $validated;
+        unset($data['asset_id']);
+        $data['no_lambung_unit'] = $asset->code_unit;
+        $data['item_pemeriksaan'] = collect($data['item_pemeriksaan'])->values()->all();
+        $data['inspektor'] = $request->user()->nrp;
+
+        $icc = IccModel::create($data);
         $this->storeInspectionPhoto($request, $icc);
 
         return redirect()->route('inspeksi.icc.index')->with('success', 'Data pemeliharaan ICC berhasil disimpan.');
@@ -74,6 +184,9 @@ class IccController extends Controller
         return view('Inspeksi.icc.edit', [
             'icc' => $icc,
             'checklistItems' => self::CHECKLIST_ITEMS,
+            'deviceInfo' => [
+                'no_lambung_unit' => $icc->no_lambung_unit,
+            ],
         ]);
     }
 
@@ -83,7 +196,10 @@ class IccController extends Controller
             return redirect()->route('inspeksi.icc.index')->with('error', 'Inspeksi yang sudah di-approve tidak dapat diubah.');
         }
 
-        $icc->update($this->validatedData($request));
+        $data = $request->validate($this->checklistValidationRules());
+        $data['item_pemeriksaan'] = collect($data['item_pemeriksaan'])->values()->all();
+
+        $icc->update($data);
         $this->storeInspectionPhoto($request, $icc);
 
         return redirect()->route('inspeksi.icc.index')->with('success', 'Data pemeliharaan ICC berhasil diperbarui.');
@@ -106,12 +222,20 @@ class IccController extends Controller
     {
         $result = $this->approvalService->approve($request, $icc);
 
+        if (!$result['success']) {
+            return back()->with($result['type'], $result['message']);
+        }
+
         return back()->with($result['type'], $result['message']);
     }
 
     public function approveAll(Request $request)
     {
         $result = $this->approvalService->approveMultiple($request, $this->filteredQuery($request));
+
+        if (!$result['success']) {
+            return back()->with($result['type'], $result['message']);
+        }
 
         return redirect()->route('inspeksi.icc.index', $request->only('search'))->with($result['type'], $result['message']);
     }
@@ -148,10 +272,18 @@ class IccController extends Controller
         return response()->download($zipPath, 'Pemeliharaan-ICC-Approved.zip')->deleteFileAfterSend(true);
     }
 
-    private function validatedData(Request $request): array
+    private function iccAssetRule(): \Closure
     {
-        $data = $request->validate(array_merge([
-            'no_lambung_unit' => ['required', 'string', 'max:255'],
+        return function ($attribute, $value, $fail) {
+            if ($value && !UnitOperasiModel::where('id', $value)->where('icc', true)->exists()) {
+                $fail('Unit ini tidak terdaftar sebagai ICC.');
+            }
+        };
+    }
+
+    private function checklistValidationRules(): array
+    {
+        return array_merge([
             'tanggal_inspeksi' => ['required', 'date'],
             'lokasi_inspeksi' => ['required', 'string', 'max:255'],
             'note' => ['nullable', 'string'],
@@ -161,11 +293,7 @@ class IccController extends Controller
             'item_pemeriksaan.*.status' => ['required', 'in:iya,tidak'],
             'item_pemeriksaan.*.keterangan' => ['nullable', 'string', 'max:1000'],
             'item_pemeriksaan.*.tindakan' => ['nullable', 'string', 'max:1000'],
-        ], $this->photoValidationRules()));
-        $data['item_pemeriksaan'] = collect($data['item_pemeriksaan'])->values()->all();
-        $data['inspektor'] = $request->user()->nrp;
-
-        return $data;
+        ], $this->photoValidationRules());
     }
 
     private function filteredQuery(Request $request)
@@ -174,43 +302,6 @@ class IccController extends Controller
             $cols = ['no_lambung_unit', 'lokasi_inspeksi', 'inspektor'];
             $query->search($cols, $request->search);
         });
-    }
-
-    public function select2(Request $request): JsonResponse
-    {
-        $search = trim((string) $request->input('q', $request->input('search', '')));
-        $perPage = 20;
-
-        $query = IccUnitModels::query();
-
-        if ($search !== '') {
-            $query->where(function ($q) use ($search) {
-                $q->where('device_name', 'like', "%{$search}%")
-                    ->orWhere('fleet', 'like', "%{$search}%")
-                    ->orWhere('sim', 'like', "%{$search}%")
-                    ->orWhere('imei', 'like', "%{$search}%");
-            });
-        }
-
-        $units = $query->orderBy('device_name')->paginate($perPage);
-
-        $results = $units->getCollection()->map(function ($unit) {
-            return [
-                'id' => $unit->id,
-                'text' => "{$unit->device_name} - {$unit->imei} - {$unit->fleet} - {$unit->sim}",
-                'code_unit' => $unit->device_name,
-                'fleet' => $unit->fleet,
-                'sim' => $unit->sim,
-                'imei' => $unit->imei,
-            ];
-        });
-
-        return response()->json([
-            'results' => $results,
-            'pagination' => [
-                'more' => $units->currentPage() < $units->lastPage(),
-            ],
-        ]);
     }
 
     public function clone(Request $request)

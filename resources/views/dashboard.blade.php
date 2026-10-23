@@ -195,9 +195,6 @@
                             <div>
                                 <small class="text-body-secondary">Akses Cepat</small>
                                 <div class="d-flex flex-wrap gap-2 mt-2">
-                                    <a href="{{ route('inspeksi.icc.create') }}" class="btn btn-sm btn-danger">
-                                        <i class="bi bi-clipboard-plus me-1"></i>Isi Inspeksi
-                                    </a>
                                     <a href="{{ route('inspeksi.icc.index') }}" class="btn btn-sm btn-outline-danger">
                                         <i class="bi bi-list-ul me-1"></i>Buka Index
                                     </a>

@@ -12,22 +12,18 @@
         </ul>
     </div>
 @endif
+
+@isset($asset)
+    <input type="hidden" name="asset_id" value="{{ $asset->id }}">
+@endisset
+
 <div class="row g-3">
     <div class="col-12">
         <h6 class="text-primary fw-bold border-bottom pb-2">Informasi Unit</h6>
     </div>
-    <div class="col-md-4"><label for="no_lambung_unit" class="form-label">No. Lambung Unit <span
-                class="text-danger">*</span></label><input id="no_lambung_unit" name="no_lambung_unit"
-            class="form-control @error('no_lambung_unit') is-invalid @enderror"
-            value="{{ old('no_lambung_unit', $icc->no_lambung_unit ?? '') }}" required autocomplete="off"
-            data-unit-select2>
-        <div id="unitSearchDropdown" class="dropdown-menu w-100 shadow-sm border mt-1"
-            style="display:none; max-height:260px; overflow:auto; z-index:1060;">
-            <div class="list-group list-group-flush" id="unitSearchResults"></div>
-        </div>
-        @error('no_lambung_unit')
-            <div class="invalid-feedback">{{ $message }}</div>
-        @enderror
+    <div class="col-md-4">
+        <label class="form-label">No. Lambung Unit</label>
+        <input type="text" class="form-control" value="{{ $deviceInfo['no_lambung_unit'] ?? '-' }}" readonly tabindex="-1">
     </div>
     <div class="col-md-4"><label for="tanggal_inspeksi" class="form-label">Tanggal Inspeksi <span
                 class="text-danger">*</span></label><input id="tanggal_inspeksi" type="date" name="tanggal_inspeksi"
@@ -92,81 +88,3 @@
     </div>
     @include('Inspeksi.partials.photo-upload')
 </div>
-<script>
-    const unitSearchInput = document.querySelector('[data-unit-select2]');
-    const unitSearchDropdown = document.getElementById('unitSearchDropdown');
-    const unitSearchResults = document.getElementById('unitSearchResults');
-
-    if (unitSearchInput && unitSearchDropdown && unitSearchResults) {
-        let timer = null;
-
-        const renderEmpty = () => {
-            unitSearchResults.innerHTML = '<div class="list-group-item text-muted small">Tidak ada data unit</div>';
-        };
-
-        const runSearch = (keyword = '') => {
-            const q = encodeURIComponent(keyword.trim());
-
-            fetch(`/api/icc/units/select2?q=${q}`, {
-                    headers: {
-                        Accept: 'application/json',
-                    },
-                })
-                .then((response) => response.json())
-                .then((payload) => {
-                    const results = payload.results ?? [];
-
-                    unitSearchResults.innerHTML = '';
-
-                    if (!results.length) {
-                        renderEmpty();
-                        return;
-                    }
-
-                    results.forEach((unit) => {
-                        const item = document.createElement('button');
-                        item.type = 'button';
-                        item.className = 'list-group-item list-group-item-action';
-                        item.innerHTML =
-                            `<span class="fw-semibold">${unit.code_unit ?? unit.text}</span><span class="d-block small text-muted">${unit.text}</span>`;
-                        item.addEventListener('click', () => {
-                            if (unitSearchInput) {
-                                unitSearchInput.value = unit.code_unit ?? unit.code_unit ?? '';
-                            }
-
-                            unitSearchDropdown.style.display = 'none';
-                        });
-
-                        unitSearchResults.appendChild(item);
-                    });
-                })
-                .catch(() => {
-                    renderEmpty();
-                });
-        };
-
-        unitSearchInput.addEventListener('input', () => {
-            clearTimeout(timer);
-            timer = setTimeout(() => runSearch(unitSearchInput.value), 250);
-
-            if (unitSearchInput.value.trim().length > 0) {
-                unitSearchDropdown.style.display = 'block';
-            } else {
-                unitSearchDropdown.style.display = 'none';
-            }
-        });
-
-        unitSearchInput.addEventListener('focus', () => {
-            if (unitSearchInput.value.trim().length > 0) {
-                runSearch(unitSearchInput.value);
-                unitSearchDropdown.style.display = 'block';
-            }
-        });
-
-        document.addEventListener('click', (event) => {
-            if (!unitSearchDropdown.contains(event.target) && event.target !== unitSearchInput) {
-                unitSearchDropdown.style.display = 'none';
-            }
-        });
-    }
-</script>

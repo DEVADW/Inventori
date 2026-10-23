@@ -20,6 +20,12 @@
     }
 
     $itemIndex = 0;
+
+    $deviceLabels = [
+        'code_number_unit' => 'Code Number Unit',
+        'type_unit' => 'Type Unit',
+        'serial_number_modul' => 'Serial Number Modul',
+    ];
 @endphp
 
 @if ($errors->any())
@@ -35,6 +41,10 @@
     </div>
 @endif
 
+@isset($asset)
+    <input type="hidden" name="asset_id" value="{{ $asset->id }}">
+@endisset
+
 <div class="row g-3">
     <div class="col-12">
         <h6 class="text-primary fw-bold border-bottom pb-2">Informasi Dokumen</h6>
@@ -49,45 +59,12 @@
         <h6 class="text-primary fw-bold border-bottom pb-2">Identitas Unit</h6>
     </div>
 
-    
-
-
-    <div class="col-md-4">
-        <label for="code_number_unit" class="form-label">Code Number Unit<span class="text-danger">*</span></label>
-        <div class="position-relative">
-            <input id="code_number_unit" name="code_number_unit"
-                class="form-control @error('code_number_unit') is-invalid @enderror"
-                value="{{ old('code_number_unit', $ofa->code_number_unit ?? '') }}" required autocomplete="off"
-                data-unit-select2>
-            <div id="unitSearchDropdown" class="dropdown-menu w-100 shadow-sm border mt-1"
-                style="display:none; max-height:260px; overflow:auto; z-index:1060;">
-                <div class="list-group list-group-flush" id="unitSearchResults"></div>
-            </div>
+    @foreach ($deviceLabels as $key => $label)
+        <div class="col-md-4">
+            <label class="form-label">{{ $label }}</label>
+            <input type="text" class="form-control" value="{{ $deviceInfo[$key] ?? '-' }}" readonly tabindex="-1">
         </div>
-        @error('code_number_unit')
-            <div class="invalid-feedback">{{ $message }}</div>
-        @enderror
-    </div>
-
-
-    <div class="col-md-4">
-        <label for="type_unit" class="form-label">Type Unit<span class="text-danger">*</span></label>
-        <input id="type_unit" name="type_unit" class="form-control @error('type_unit') is-invalid @enderror"
-            value="{{ old('type_unit', $ofa->type_unit ?? '') }}" required readonly>
-        @error('type_unit')
-            <div class="invalid-feedback">{{ $message }}</div>
-        @enderror
-    </div>
-
-    <div class="col-md-4">
-        <label for="serial_number_modul" class="form-label">Serial Number Modul</label>
-        <input id="serial_number_modul" name="serial_number_modul"
-            class="form-control @error('serial_number_modul') is-invalid @enderror"
-            value="{{ old('serial_number_modul', $ofa->serial_number_modul ?? '') }}">
-        @error('serial_number_modul')
-            <div class="invalid-feedback">{{ $message }}</div>
-        @enderror
-    </div>
+    @endforeach
 
     <div class="col-md-4">
         <label for="jobsite" class="form-label">Jobsite<span class="text-danger">*</span></label>
@@ -106,9 +83,15 @@
             <div class="invalid-feedback">{{ $message }}</div>
         @enderror
     </div>
-    <div class="col-md-4"><label class="form-label">Date</label><input type="date" name="tanggal_inspeksi"
-            class="form-control"
-            value="{{ isset($ofa) ? $ofa->created_at?->format('d-m-Y') : now()->format('d-m-Y') }}"></div>
+    <div class="col-md-4">
+        <label for="tanggal_inspeksi" class="form-label">Date</label>
+        <input type="date" id="tanggal_inspeksi" name="tanggal_inspeksi"
+            class="form-control @error('tanggal_inspeksi') is-invalid @enderror"
+            value="{{ old('tanggal_inspeksi', isset($ofa) && $ofa->tanggal_inspeksi ? substr($ofa->tanggal_inspeksi, 0, 10) : now()->format('Y-m-d')) }}">
+        @error('tanggal_inspeksi')
+            <div class="invalid-feedback">{{ $message }}</div>
+        @enderror
+    </div>
     <div class="col-12 mt-4">
         <h6 class="text-primary fw-bold border-bottom pb-2">Item Pemeriksaan</h6>
     </div>

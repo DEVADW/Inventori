@@ -25,8 +25,15 @@ use App\Http\Controllers\inspeksi\Ss6Controller;
 use App\Http\Controllers\inspeksi\OfaController;
 use App\Http\Controllers\inspeksi\IccController;
 use App\Http\Controllers\KaryawanController;
+use App\Http\Controllers\SimCardController;
+use App\Http\Controllers\UnitOperasiController;
+use App\Http\Controllers\InventoriStavoltController;
+use App\Http\Controllers\InventoriUpsController;
+use App\Http\Controllers\InventoriTvController;
+use App\Http\Controllers\InventoriProyektorController;
 use App\Http\Controllers\AccountSettingsController;
 use App\Http\Controllers\UserManagementController;
+use App\Http\Controllers\InspectionSettingController;
 
 // Route::get('/', function () {
 //     return view('dashboard');
@@ -90,6 +97,66 @@ Route::middleware('auth')->group(function () {
         Route::delete('/{karyawan}/destroy', 'destroy')->name('destroy');
     });
 
+    //Route Data Aset - SIM Card
+    Route::controller(SimCardController::class)->prefix('/aset/sim-card')->name('aset.simcard.')->group(function () {
+        Route::get('/', 'index')->name('index');
+        Route::get('/create', 'create')->name('create');
+        Route::post('/store', 'store')->name('store');
+        Route::get('/{simcard}/edit', 'edit')->name('edit');
+        Route::put('/{simcard}/update', 'update')->name('update');
+        Route::delete('/{simcard}/destroy', 'destroy')->name('destroy');
+    });
+
+    //Route Data Aset - Unit Operasi
+    Route::controller(UnitOperasiController::class)->prefix('/aset/unit-operasi')->name('aset.unitoperasi.')->group(function () {
+        Route::get('/', 'index')->name('index');
+        Route::get('/create', 'create')->name('create');
+        Route::post('/store', 'store')->name('store');
+        Route::get('/{unitoperasi}/edit', 'edit')->name('edit');
+        Route::put('/{unitoperasi}/update', 'update')->name('update');
+        Route::delete('/{unitoperasi}/destroy', 'destroy')->name('destroy');
+    });
+
+    //Route Data Aset - Inventori Stavolt
+    Route::controller(InventoriStavoltController::class)->prefix('/aset/inventori-stavolt')->name('aset.inventoristavolt.')->group(function () {
+        Route::get('/', 'index')->name('index');
+        Route::get('/create', 'create')->name('create');
+        Route::post('/store', 'store')->name('store');
+        Route::get('/{inventoristavolt}/edit', 'edit')->name('edit');
+        Route::put('/{inventoristavolt}/update', 'update')->name('update');
+        Route::delete('/{inventoristavolt}/destroy', 'destroy')->name('destroy');
+    });
+
+    //Route Data Aset - Inventori UPS
+    Route::controller(InventoriUpsController::class)->prefix('/aset/inventori-ups')->name('aset.inventoriups.')->group(function () {
+        Route::get('/', 'index')->name('index');
+        Route::get('/create', 'create')->name('create');
+        Route::post('/store', 'store')->name('store');
+        Route::get('/{inventoriups}/edit', 'edit')->name('edit');
+        Route::put('/{inventoriups}/update', 'update')->name('update');
+        Route::delete('/{inventoriups}/destroy', 'destroy')->name('destroy');
+    });
+
+    //Route Data Aset - Inventori TV
+    Route::controller(InventoriTvController::class)->prefix('/aset/inventori-tv')->name('aset.inventoritv.')->group(function () {
+        Route::get('/', 'index')->name('index');
+        Route::get('/create', 'create')->name('create');
+        Route::post('/store', 'store')->name('store');
+        Route::get('/{inventoritv}/edit', 'edit')->name('edit');
+        Route::put('/{inventoritv}/update', 'update')->name('update');
+        Route::delete('/{inventoritv}/destroy', 'destroy')->name('destroy');
+    });
+
+    //Route Data Aset - Inventori Proyektor
+    Route::controller(InventoriProyektorController::class)->prefix('/aset/inventori-proyektor')->name('aset.inventoriproyektor.')->group(function () {
+        Route::get('/', 'index')->name('index');
+        Route::get('/create', 'create')->name('create');
+        Route::post('/store', 'store')->name('store');
+        Route::get('/{inventoriproyektor}/edit', 'edit')->name('edit');
+        Route::put('/{inventoriproyektor}/update', 'update')->name('update');
+        Route::delete('/{inventoriproyektor}/destroy', 'destroy')->name('destroy');
+    });
+
 
 
     // Route Inspeksi
@@ -99,8 +166,9 @@ Route::middleware('auth')->group(function () {
         ->name('inspeksi.stavolt.')
         ->group(function () {
             Route::get('/', 'index')->name('index');
+            Route::get('/riwayat', 'riwayat')->name('riwayat');
             Route::get('/export', 'export')->name('export');
-            Route::get('/create', 'create')->name('create');
+            Route::get('/create/{asset}', 'create')->name('create');
             Route::post('/store', 'store')->name('store');
             Route::post('/approve-all', 'approveAll')->name('approve-all');
             Route::get('/download-approved', 'downloadApproved')->name('download-approved');
@@ -119,8 +187,9 @@ Route::middleware('auth')->group(function () {
         ->name('inspeksi.ups.')
         ->group(function () {
             Route::get('/', 'index')->name('index');
+            Route::get('/riwayat', 'riwayat')->name('riwayat');
             Route::get('/export', 'export')->name('export');
-            Route::get('/create', 'create')->name('create');
+            Route::get('/create/{asset}', 'create')->name('create');
             Route::post('/store', 'store')->name('store');
             Route::post('/approve-all', 'approveAll')->name('approve-all');
             Route::get('/download-approved', 'downloadApproved')->name('download-approved');
@@ -138,8 +207,9 @@ Route::middleware('auth')->group(function () {
         ->name('inspeksi.monitor.')
         ->group(function () {
             Route::get('/', 'index')->name('index');
+            Route::get('/riwayat', 'riwayat')->name('riwayat');
             Route::get('/export', 'export')->name('export');
-            Route::get('/create', 'create')->name('create');
+            Route::get('/create/{asset}', 'create')->name('create');
             Route::post('/store', 'store')->name('store');
             Route::post('/approve-all', 'approveAll')->name('approve-all');
             Route::get('/download-approved', 'downloadApproved')->name('download-approved');
@@ -158,8 +228,9 @@ Route::middleware('auth')->group(function () {
         ->name('inspeksi.proyektor.')
         ->group(function () {
             Route::get('/', 'index')->name('index');
+            Route::get('/riwayat', 'riwayat')->name('riwayat');
             Route::get('/export', 'export')->name('export');
-            Route::get('/create', 'create')->name('create');
+            Route::get('/create/{asset}', 'create')->name('create');
             Route::post('/store', 'store')->name('store');
             Route::post('/approve-all', 'approveAll')->name('approve-all');
             Route::get('/download-approved', 'downloadApproved')->name('download-approved');
@@ -178,8 +249,9 @@ Route::middleware('auth')->group(function () {
         ->name('inspeksi.ss6.')
         ->group(function () {
             Route::get('/', 'index')->name('index');
+            Route::get('/riwayat', 'riwayat')->name('riwayat');
             Route::get('/export', 'export')->name('export');
-            Route::get('/create', 'create')->name('create');
+            Route::get('/create/{asset}', 'create')->name('create');
             Route::post('/store', 'store')->name('store');
             Route::post('/approve-all', 'approveAll')->name('approve-all');
             Route::get('/download-approved', 'downloadApproved')->name('download-approved');
@@ -198,8 +270,9 @@ Route::middleware('auth')->group(function () {
         ->name('inspeksi.ofa.')
         ->group(function () {
             Route::get('/', 'index')->name('index');
+            Route::get('/riwayat', 'riwayat')->name('riwayat');
             Route::get('/export', 'export')->name('export');
-            Route::get('/create', 'create')->name('create');
+            Route::get('/create/{asset}', 'create')->name('create');
             Route::post('/', 'store')->name('store');
             Route::post('/approve-all', 'approveAll')->name('approve-all');
             Route::get('/download-approved', 'downloadApproved')->name('download-approved');
@@ -217,8 +290,9 @@ Route::middleware('auth')->group(function () {
         ->name('inspeksi.icc.')
         ->group(function () {
             Route::get('/', 'index')->name('index');
+            Route::get('/riwayat', 'riwayat')->name('riwayat');
             Route::get('/export', 'export')->name('export');
-            Route::get('/create', 'create')->name('create');
+            Route::get('/create/{asset}', 'create')->name('create');
             Route::post('/', 'store')->name('store');
             Route::post('/approve-all', 'approveAll')->name('approve-all');
             Route::get('/download-approved', 'downloadApproved')->name('download-approved');
@@ -250,6 +324,12 @@ Route::middleware('auth')->group(function () {
         Route::get('/{user}/edit', 'edit')->name('edit');
         Route::put('/{user}', 'update')->name('update');
         Route::delete('/{user}', 'destroy')->name('destroy');
+    });
+
+    // Inspection Period Settings Route (Admin Only)
+    Route::middleware('can:isAdmin')->controller(InspectionSettingController::class)->prefix('/pengaturan/inspeksi')->name('settings.inspeksi.')->group(function () {
+        Route::get('/', 'index')->name('index');
+        Route::put('/{module}', 'update')->name('update');
     });
 
     // Old Profile Modal Route (kept for backward compatibility)
