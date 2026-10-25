@@ -411,7 +411,7 @@
             <td class="signature-space">
                 @php
                     $qr = new \chillerlan\QRCode\QRCode();
-                    $qrCode = $qr->render($icc->IdKaryawan?->qr_code ?? $icc->inspektor);
+                    $qrCode = $qr->render($icc->inspektorUser?->qr_code ?? $icc->inspektor);
                 @endphp
                 <div style="margin-top: 4px; text-align: center;">
                     <img src="{{ $qrCode }}" width="64" height="64" alt="QR Code"
@@ -437,7 +437,7 @@
         <tr>
             <td class="signature-name">
                 @if (!empty($icc->inspektor))
-                    <strong>{{ $icc->IdKaryawan?->nama }}</strong>
+                    <strong>{{ $icc->inspektorUser?->nama }}</strong>
                 @endif
             </td>
             <td class="signature-name">

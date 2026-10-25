@@ -148,7 +148,7 @@
                                     <strong>Tips Keamanan:</strong>
                                     <ul class="mb-0 mt-2 small">
                                         <li>Gunakan password yang kuat dengan kombinasi huruf, angka, dan simbol</li>
-                                        <li>Password minimal 8 karakter</li>
+                                        <li>Password minimal 5 karakter</li>
                                         <li>Jangan bagikan password Anda kepada siapapun</li>
                                         <li>Ubah password secara berkala untuk keamanan maksimal</li>
                                     </ul>

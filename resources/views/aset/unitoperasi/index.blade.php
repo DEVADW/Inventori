@@ -11,6 +11,10 @@
 
             <div class="d-flex flex-column flex-sm-row align-items-end align-items-sm-center gap-2">
                 <x-data-search :action="route('aset.unitoperasi.index')" placeholder="Cari code/type unit"></x-data-search>
+                <button type="button" class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1"
+                    data-bs-toggle="modal" data-bs-target="#importUnitOperasiModal">
+                    <i class="bi bi-file-earmark-arrow-up"></i> Import Excel
+                </button>
                 <a class="btn btn-sm btn-outline-success d-flex align-items-center gap-1"
                     href="{{ route('aset.unitoperasi.create') }}">
                     <i class="bi bi-plus-lg"></i> Tambah Unit
@@ -24,11 +28,11 @@
             <thead>
                 <tr>
                     <th style="width: 50px" class="text-center">No</th>
-                    <th>Code Number Unit</th>
-                    <th>Type Unit</th>
+                    <x-sortable-th field="code_unit" label="Code Number Unit" />
+                    <x-sortable-th field="type_unit" label="Type Unit" />
                     <th class="text-center">Kelengkapan</th>
                     <th>No SIM Card</th>
-                    <th>Remark</th>
+                    <x-sortable-th field="remark" label="Remark" />
                     <th style="width: 150px" class="text-center">Aksi</th>
                 </tr>
             </thead>
@@ -52,7 +56,7 @@
                                 <span class="text-muted">-</span>
                             @endif
                         </td>
-                        <td>{{ $items->simCard->nomor_msisdn ?? '-' }}</td>
+                        <td>{{ $items->simCards->pluck('nomor_msisdn')->implode(', ') ?: '-' }}</td>
                         <td>{{ $items->remark ?? '-' }}</td>
                         <td class="text-center">
                             <div class="btn-group btn-group-sm gap-1" role="group">
@@ -85,4 +89,53 @@
 
     <div class="card-footer text-secondary small"></div>
     {{ $dataUnitOperasi->links() }}
+
+    <div class="modal fade" id="importUnitOperasiModal" tabindex="-1" aria-labelledby="importUnitOperasiModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <form action="{{ route('aset.unitoperasi.import') }}" method="POST" enctype="multipart/form-data" class="modal-content">
+                @csrf
+                <div class="modal-header">
+                    <h5 class="modal-title" id="importUnitOperasiModalLabel">Import Data Unit Operasi</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted mb-3">
+                        Unggah <strong>data_aset.xlsx</strong>. Baris 1 wajib digunakan sebagai header; data dimulai dari baris 2.
+                        Kolom B: Code Number Unit, C: Tipe Unit, D: No SIM Card, E: OFA, F: ICC, G: SS6,
+                        H: Serial Number Module, I: Serial Number TAB, J: No Aset TAB, K: Remark.
+                    </p>
+                    <label for="unit-operasi-file" class="form-label">File Excel</label>
+                    <input id="unit-operasi-file" type="file" name="file" class="form-control @if ($errors->has('file')) is-invalid @endif"
+                        accept=".xlsx" required>
+                    @if ($errors->has('file'))
+                        <div class="invalid-feedback d-block">
+                            <ul class="mb-0 ps-3">
+                                @foreach ($errors->get('file') as $message)
+                                    <li>{{ $message }}</li>
+                                @endforeach
+                            </ul>
+                        </div>
+                    @endif
+                    <div class="form-text">
+                        OFA, ICC, dan SS6 menerima Ya/Tidak, True/False, atau 1/0. Kosong berarti Tidak.
+                        Kolom H digunakan bila OFA aktif; kolom I dan J digunakan bila SS6 aktif.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-primary">Import</button>
+                </div>
+            </form>
+        </div>
+    </div>
 @endsection
+
+@push('scripts')
+    @if ($errors->has('file'))
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                new bootstrap.Modal(document.getElementById('importUnitOperasiModal')).show();
+            });
+        </script>
+    @endif
+@endpush

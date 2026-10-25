@@ -10,6 +10,7 @@ use App\Models\inspeksi\OfaModel;
 use App\Services\ApprovalService;
 use App\Services\CloneInspeksi;
 use App\Services\InspectionPeriod;
+use App\Services\SimCardAssignmentService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -21,7 +22,11 @@ class OfaController extends Controller
 
     private const MODULE = 'ofa';
 
-    public function __construct(protected ApprovalService $approvalService, protected CloneInspeksi $cloneInspeksi) {}
+    public function __construct(
+        protected ApprovalService $approvalService,
+        protected CloneInspeksi $cloneInspeksi,
+        protected SimCardAssignmentService $simCardAssignment,
+    ) {}
 
     public const CHECKLIST_SECTIONS = [
         'A. MAIN MODUL' => [
@@ -149,6 +154,8 @@ class OfaController extends Controller
                 'type_unit' => $asset->type_unit,
                 'serial_number_modul' => $asset->serial_number_module,
             ],
+            'availableSimCards' => $this->simCardAssignment->availableFor($asset),
+            'selectedSimCardIds' => $asset->simCards->pluck('id')->all(),
         ]));
     }
 
@@ -168,9 +175,12 @@ class OfaController extends Controller
 
     public function store(Request $request)
     {
+        $asset = UnitOperasiModel::find($request->input('asset_id'));
+
         $validated = $request->validate(array_merge(
             ['asset_id' => ['required', 'exists:unit_operasi,id', $this->ofaAssetRule()]],
-            $this->checklistValidationRules()
+            $this->checklistValidationRules(),
+            $this->simCardAssignment->rules($asset)
         ));
 
         $asset = UnitOperasiModel::findOrFail($validated['asset_id']);
@@ -186,7 +196,7 @@ class OfaController extends Controller
         }
 
         $data = $validated;
-        unset($data['asset_id']);
+        unset($data['asset_id'], $data['sim_card_ids']);
         $data['code_number_unit'] = $asset->code_unit;
         $data['type_unit'] = $asset->type_unit;
         $data['serial_number_modul'] = $asset->serial_number_module;
@@ -196,6 +206,7 @@ class OfaController extends Controller
 
         $ofa = OfaModel::create($data);
         $this->storeInspectionPhoto($request, $ofa);
+        $this->simCardAssignment->sync($asset, $validated['sim_card_ids'] ?? []);
 
         return redirect()
             ->route('inspeksi.ofa.index')
@@ -204,6 +215,8 @@ class OfaController extends Controller
 
     public function edit(OfaModel $ofa)
     {
+        $asset = UnitOperasiModel::where('code_unit', $ofa->code_number_unit)->first();
+
         return view('Inspeksi.ofa.edit', array_merge($this->formData(), [
             'ofa' => $ofa,
             'deviceInfo' => [
@@ -211,6 +224,9 @@ class OfaController extends Controller
                 'type_unit' => $ofa->type_unit,
                 'serial_number_modul' => $ofa->serial_number_modul,
             ],
+            'asset' => $asset,
+            'availableSimCards' => $asset ? $this->simCardAssignment->availableFor($asset) : collect(),
+            'selectedSimCardIds' => $asset ? $asset->simCards->pluck('id')->all() : [],
         ]));
     }
 
@@ -222,12 +238,23 @@ class OfaController extends Controller
                 ->with('error', 'Inspeksi yang sudah di-approve tidak dapat diubah.');
         }
 
-        $data = $request->validate($this->checklistValidationRules());
+        $asset = UnitOperasiModel::where('code_unit', $ofa->code_number_unit)->first();
+
+        $data = $request->validate(array_merge(
+            $this->checklistValidationRules(),
+            $this->simCardAssignment->rules($asset)
+        ));
+        $simCardIds = $data['sim_card_ids'] ?? [];
+        unset($data['sim_card_ids']);
         $data['item_pemeriksaan'] = collect($data['item_pemeriksaan'])->values()->all();
         $data['tim_pelaksana'] = collect($data['tim_pelaksana'])->values()->all();
 
         $ofa->update($data);
         $this->storeInspectionPhoto($request, $ofa);
+
+        if ($asset) {
+            $this->simCardAssignment->sync($asset, $simCardIds);
+        }
 
         return redirect()
             ->route('inspeksi.ofa.index')

@@ -13,7 +13,7 @@ class UnitOperasiModel extends Model
 
     protected $fillable = [
         'code_unit', 'type_unit', 'remark', 'ofa', 'icc', 'ss6',
-        'serial_number_module', 'serial_number_tab', 'no_aset_tab', 'sim_card_id',
+        'serial_number_module', 'serial_number_tab', 'no_aset_tab',
     ];
 
     protected $casts = [
@@ -22,8 +22,8 @@ class UnitOperasiModel extends Model
         'ss6' => 'boolean',
     ];
 
-    public function simCard()
+    public function simCards()
     {
-        return $this->belongsTo(SimCardModel::class, 'sim_card_id');
+        return $this->hasMany(SimCardModel::class, 'unit_operasi_id');
     }
 }

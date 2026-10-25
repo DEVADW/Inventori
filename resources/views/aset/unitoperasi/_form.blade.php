@@ -19,20 +19,11 @@
         @enderror
     </div>
 
+    @php
+        $selectedSimCardIds = old('sim_card_ids', isset($unitoperasi) ? $unitoperasi->simCards->pluck('id')->all() : []);
+    @endphp
     <div class="col-md-6 col-lg-4">
-        <label for="sim_card_id" class="form-label">No SIM Card</label>
-        <select id="sim_card_id" name="sim_card_id" class="form-select @error('sim_card_id') is-invalid @enderror">
-            <option value="">-- Tidak ada --</option>
-            @foreach ($availableSimCards as $simCard)
-                <option value="{{ $simCard->id }}"
-                    {{ (string) old('sim_card_id', $unitoperasi->sim_card_id ?? '') === (string) $simCard->id ? 'selected' : '' }}>
-                    {{ $simCard->nomor_msisdn }}
-                </option>
-            @endforeach
-        </select>
-        @error('sim_card_id')
-            <div class="invalid-feedback">{{ $message }}</div>
-        @enderror
+        <x-sim-card-select :options="$availableSimCards" :selected="$selectedSimCardIds" />
     </div>
 
     <div class="col-md-6 col-lg-4">

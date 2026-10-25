@@ -25,6 +25,11 @@
         <label class="form-label">No. Lambung Unit</label>
         <input type="text" class="form-control" value="{{ $deviceInfo['no_lambung_unit'] ?? '-' }}" readonly tabindex="-1">
     </div>
+    @isset($asset)
+        <div class="col-md-4">
+            <x-sim-card-select :options="$availableSimCards" :selected="old('sim_card_ids', $selectedSimCardIds ?? [])" />
+        </div>
+    @endisset
     <div class="col-md-4"><label for="tanggal_inspeksi" class="form-label">Tanggal Inspeksi <span
                 class="text-danger">*</span></label><input id="tanggal_inspeksi" type="date" name="tanggal_inspeksi"
             class="form-control @error('tanggal_inspeksi') is-invalid @enderror"

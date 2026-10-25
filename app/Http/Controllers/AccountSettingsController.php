@@ -50,7 +50,7 @@ class AccountSettingsController extends Controller
                     $fail('Password saat ini tidak sesuai.');
                 }
             }],
-            'new_password' => ['required', 'string', 'confirmed'],
+            'new_password' => ['required', 'string', 'min:5', 'confirmed'],
             'new_password_confirmation' => ['required'],
         ]);
 

@@ -17,10 +17,18 @@ class CheckRole
     {
         $user = $request->user();
 
-        $userJabatan = strtolower(trim((string) ($user?->jabatan ?? '')));
+        if (!$user) {
+            abort(403, 'Anda tidak memiliki akses ke halaman ini.');
+        }
+
+        if ($user->role === 'admin') {
+            return $next($request);
+        }
+
+        $userJabatan = strtolower(trim((string) ($user->jabatan ?? '')));
         $allowedJabatan = array_map(static fn (string $value): string => strtolower(trim($value)), $jabatan);
 
-        if (!$user || !in_array($userJabatan, $allowedJabatan, true)) {
+        if (!in_array($userJabatan, $allowedJabatan, true)) {
             abort(403, 'Anda tidak memiliki akses ke halaman ini.');
         }
 

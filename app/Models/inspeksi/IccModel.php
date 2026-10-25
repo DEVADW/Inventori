@@ -2,7 +2,7 @@
 
 namespace App\Models\inspeksi;
 
-use App\Models\KaryawanModel;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -37,7 +37,8 @@ class IccModel extends Model
         ];
     }
 
-    public function IdKaryawan() {
-        return $this->belongsTo(KaryawanModel::class, 'inspektor', 'nrp');
+    public function inspektorUser()
+    {
+        return $this->belongsTo(User::class, 'inspektor', 'nrp');
     }
 }

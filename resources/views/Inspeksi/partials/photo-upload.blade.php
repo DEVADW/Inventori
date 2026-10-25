@@ -1,8 +1,5 @@
 @php
-    $jabatan = strtolower(trim((string) (Auth::user()->jabatan ?? '')));
-    $jabatan = preg_replace('/\s+/', '_', $jabatan);
-    $isUploadAndCamera = in_array($jabatan, ['ict', 'helper', 'hardware_enggineer', 'ict_technician'], true);
-    $isCameraOnly = in_array($jabatan, ['hardware_enggineer', 'ict_technician'], true);
+    $isUploadAndCamera = (bool) (Auth::user()->izin_galeri_foto ?? true);
 @endphp
 
 <div class="col-12">

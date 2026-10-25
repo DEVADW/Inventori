@@ -10,6 +10,7 @@ use App\Models\inspeksi\IccModel;
 use App\Services\ApprovalService;
 use App\Services\CloneInspeksi;
 use App\Services\InspectionPeriod;
+use App\Services\SimCardAssignmentService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -38,7 +39,11 @@ class IccController extends Controller
         14 => 'Fungsi Deteksi Kamera: Sistem mendeteksi kamera aktif & merekam dengan benar',
     ];
 
-    public function __construct(protected ApprovalService $approvalService, protected CloneInspeksi $cloneInspeksi) {}
+    public function __construct(
+        protected ApprovalService $approvalService,
+        protected CloneInspeksi $cloneInspeksi,
+        protected SimCardAssignmentService $simCardAssignment,
+    ) {}
 
     public function index(Request $request)
     {
@@ -136,6 +141,8 @@ class IccController extends Controller
             'deviceInfo' => [
                 'no_lambung_unit' => $asset->code_unit,
             ],
+            'availableSimCards' => $this->simCardAssignment->availableFor($asset),
+            'selectedSimCardIds' => $asset->simCards->pluck('id')->all(),
         ]);
     }
 
@@ -150,9 +157,12 @@ class IccController extends Controller
 
     public function store(Request $request)
     {
+        $asset = UnitOperasiModel::find($request->input('asset_id'));
+
         $validated = $request->validate(array_merge(
             ['asset_id' => ['required', 'exists:unit_operasi,id', $this->iccAssetRule()]],
-            $this->checklistValidationRules()
+            $this->checklistValidationRules(),
+            $this->simCardAssignment->rules($asset)
         ));
 
         $asset = UnitOperasiModel::findOrFail($validated['asset_id']);
@@ -168,25 +178,31 @@ class IccController extends Controller
         }
 
         $data = $validated;
-        unset($data['asset_id']);
+        unset($data['asset_id'], $data['sim_card_ids']);
         $data['no_lambung_unit'] = $asset->code_unit;
         $data['item_pemeriksaan'] = collect($data['item_pemeriksaan'])->values()->all();
         $data['inspektor'] = $request->user()->nrp;
 
         $icc = IccModel::create($data);
         $this->storeInspectionPhoto($request, $icc);
+        $this->simCardAssignment->sync($asset, $validated['sim_card_ids'] ?? []);
 
         return redirect()->route('inspeksi.icc.index')->with('success', 'Data pemeliharaan ICC berhasil disimpan.');
     }
 
     public function edit(IccModel $icc)
     {
+        $asset = UnitOperasiModel::where('code_unit', $icc->no_lambung_unit)->first();
+
         return view('Inspeksi.icc.edit', [
             'icc' => $icc,
             'checklistItems' => self::CHECKLIST_ITEMS,
             'deviceInfo' => [
                 'no_lambung_unit' => $icc->no_lambung_unit,
             ],
+            'asset' => $asset,
+            'availableSimCards' => $asset ? $this->simCardAssignment->availableFor($asset) : collect(),
+            'selectedSimCardIds' => $asset ? $asset->simCards->pluck('id')->all() : [],
         ]);
     }
 
@@ -196,11 +212,22 @@ class IccController extends Controller
             return redirect()->route('inspeksi.icc.index')->with('error', 'Inspeksi yang sudah di-approve tidak dapat diubah.');
         }
 
-        $data = $request->validate($this->checklistValidationRules());
+        $asset = UnitOperasiModel::where('code_unit', $icc->no_lambung_unit)->first();
+
+        $data = $request->validate(array_merge(
+            $this->checklistValidationRules(),
+            $this->simCardAssignment->rules($asset)
+        ));
+        $simCardIds = $data['sim_card_ids'] ?? [];
+        unset($data['sim_card_ids']);
         $data['item_pemeriksaan'] = collect($data['item_pemeriksaan'])->values()->all();
 
         $icc->update($data);
         $this->storeInspectionPhoto($request, $icc);
+
+        if ($asset) {
+            $this->simCardAssignment->sync($asset, $simCardIds);
+        }
 
         return redirect()->route('inspeksi.icc.index')->with('success', 'Data pemeliharaan ICC berhasil diperbarui.');
     }

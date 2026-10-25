@@ -35,6 +35,12 @@
             </div>
         @endforeach
 
+        @isset($asset)
+            <div class="col-md-6 mb-3">
+                <x-sim-card-select :options="$availableSimCards" :selected="old('sim_card_ids', $selectedSimCardIds ?? [])" />
+            </div>
+        @endisset
+
         <div class="col-md-6 mb-3">
             <label for="tanggal_inspeksi" class="form-label">
                 Tanggal Inspeksi <span class="text-danger">*</span>

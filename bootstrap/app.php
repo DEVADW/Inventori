@@ -14,7 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         //
-        $middleware->alias(['jabatan' => CheckRole::class]);
+        $middleware->alias(['jabatan' => CheckRole::class, 'inspeksi.access' => \App\Http\Middleware\EnsureInspectionAccess::class]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

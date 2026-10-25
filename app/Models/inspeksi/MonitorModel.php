@@ -2,7 +2,7 @@
 
 namespace App\Models\inspeksi;
 
-use App\Models\KaryawanModel;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -30,8 +30,8 @@ class MonitorModel extends Model
         ];
     }
 
-    public function inspektorKaryawan()
+    public function inspektorUser()
     {
-        return $this->belongsTo(KaryawanModel::class, 'inspektor', 'nrp');
+        return $this->belongsTo(User::class, 'inspektor', 'nrp');
     }
 }

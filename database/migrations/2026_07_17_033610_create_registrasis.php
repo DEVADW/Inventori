@@ -22,7 +22,7 @@ return new class extends Migration
             $table->string('merek_radio');
             $table->string('jenis_radio', 200)->nullable();
             $table->string('serial_number');
-            $table->date('tanggal_permintaan')->default(DB::raw('CURRENT_DATE'));
+            $table->date('tanggal_permintaan')->default(DB::raw('(CURRENT_DATE)'));
             $table->json('channels')->nullable();
             $table->timestamps();
             $table->string('range_power')->nullable();

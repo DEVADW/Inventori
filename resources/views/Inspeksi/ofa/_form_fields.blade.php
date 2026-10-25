@@ -66,6 +66,12 @@
         </div>
     @endforeach
 
+    @isset($asset)
+        <div class="col-md-4">
+            <x-sim-card-select :options="$availableSimCards" :selected="old('sim_card_ids', $selectedSimCardIds ?? [])" />
+        </div>
+    @endisset
+
     <div class="col-md-4">
         <label for="jobsite" class="form-label">Jobsite<span class="text-danger">*</span></label>
         <input id="jobsite" name="jobsite" class="form-control @error('jobsite') is-invalid @enderror"

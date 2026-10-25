@@ -115,7 +115,7 @@
                             <div>
                                 <small class="text-body-secondary">Akses Cepat</small>
                                 <div class="d-flex flex-wrap gap-2 mt-2">
-                                    <a href="{{ route('inspeksi.ofa.create') }}" class="btn btn-sm btn-danger">
+                                    <a href="{{ route('inspeksi.ofa.index') }}" class="btn btn-sm btn-danger">
                                         <i class="bi bi-clipboard-plus me-1"></i>Isi Inspeksi
                                     </a>
                                     <a href="{{ route('inspeksi.ofa.index') }}" class="btn btn-sm btn-outline-danger">
@@ -420,15 +420,6 @@
                                         class="bi bi-person-plus d-block fs-5 mb-1"></i><small class="fw-semibold">Tambah
                                         tamu</small></a></div>
                         @endcan
-                        @if(Auth::user()->jabatan === 'security')
-                            <div class="col-6"><a class="quick-link d-block p-3" href="{{ route('tamu.index') }}"><i
-                                        class="bi bi-book d-block fs-5 mb-1"></i><small class="fw-semibold">Buku Tamu</small></a></div>
-                        @elseif(Auth::user()->role === 'admin' || Auth::user()->can('isGL'))
-                            <div class="col-6"><a class="quick-link d-block p-3"
-                                    href="{{ route('inspeksi.ups.create') }}"><i
-                                        class="bi bi-clipboard-plus d-block fs-5 mb-1"></i><small class="fw-semibold">Inspeksi
-                                        UPS</small></a></div>
-                        @endif
                     </div>
                 </div>
             </div>

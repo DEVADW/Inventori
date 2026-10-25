@@ -2,7 +2,7 @@
 
 namespace App\Models\inspeksi;
 
-use App\Models\KaryawanModel;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -52,8 +52,8 @@ class OfaModel extends Model
         ];
     }
     
-// ambil data nrp dari tabel karyawan
-    public function karyawanId() {
-        return $this->belongsTO(KaryawanModel::class,'diinspeksi_oleh', 'nrp');
+    public function inspektorUser()
+    {
+        return $this->belongsTo(User::class, 'diinspeksi_oleh', 'nrp');
     }
 }

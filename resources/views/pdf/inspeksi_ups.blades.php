@@ -190,9 +190,9 @@
 
 <body>
 @php
-        // --- Data inspektor & approver (tetap dinamis dari relasi karyawan) ---
-        $inspectorName = $inspection->inspektorKaryawan?->nama ?? ($inspection->inspektor ?? '');
-        $inspectorQr = $inspection->inspektorKaryawan?->qr_code ?? $inspection->inspektor;
+        // --- Data inspektor & approver (dinamis dari relasi user) ---
+        $inspectorName = $inspection->inspektorUser?->nama ?? ($inspection->inspektor ?? '');
+        $inspectorQr = $inspection->inspektorUser?->qr_code ?? $inspection->inspektor;
 
         // --- Info dokumen (No. Dokumen / Revisi / Tgl Efektif / Halaman) ---
         // Departemen diambil dari $documentInfo supaya bisa beda-beda tergantung
@@ -386,7 +386,7 @@
                         </tr>
                         <tr>
                             <td class="ttd-footer">
-                                <div><span class="lbl">Nama</span>: {{ $ups->inspektorKaryawan->nama ?? '' }}</div>
+                                <div><span class="lbl">Nama</span>: {{ $ups->inspektorUser?->nama ?? '' }}</div>
                                 <div><span class="lbl">Jabatan</span>: ICT </div>
                             </td>
                         </tr>

@@ -10,6 +10,7 @@ use App\Models\inspeksi\Ss6Model;
 use App\Services\ApprovalService;
 use App\Services\CloneInspeksi;
 use App\Services\InspectionPeriod;
+use App\Services\SimCardAssignmentService;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -31,7 +32,11 @@ class Ss6Controller extends Controller
         'kondisi_baterai',
     ];
 
-    public function __construct(protected ApprovalService $approvalService, protected CloneInspeksi $cloneInspeksi) {}
+    public function __construct(
+        protected ApprovalService $approvalService,
+        protected CloneInspeksi $cloneInspeksi,
+        protected SimCardAssignmentService $simCardAssignment,
+    ) {}
 
     public function index(Request $req)
     {
@@ -131,6 +136,8 @@ class Ss6Controller extends Controller
                 'no_asset' => $asset->no_aset_tab,
                 'serial_number' => $asset->serial_number_tab,
             ],
+            'availableSimCards' => $this->simCardAssignment->availableFor($asset),
+            'selectedSimCardIds' => $asset->simCards->pluck('id')->all(),
         ]);
     }
 
@@ -144,9 +151,12 @@ class Ss6Controller extends Controller
 
     public function store(Request $req)
     {
+        $asset = UnitOperasiModel::find($req->input('asset_id'));
+
         $validated = $req->validate(array_merge(
             ['asset_id' => ['required', 'exists:unit_operasi,id', $this->ss6AssetRule()]],
-            $this->checklistValidationRules()
+            $this->checklistValidationRules(),
+            $this->simCardAssignment->rules($asset)
         ));
 
         $asset = UnitOperasiModel::findOrFail($validated['asset_id']);
@@ -162,7 +172,7 @@ class Ss6Controller extends Controller
         }
 
         $data = $this->packKondisiFields($validated);
-        unset($data['asset_id']);
+        unset($data['asset_id'], $data['sim_card_ids']);
         $data['no_lambung'] = $asset->code_unit;
         $data['no_asset'] = $asset->no_aset_tab;
         $data['serial_number'] = $asset->serial_number_tab;
@@ -170,6 +180,7 @@ class Ss6Controller extends Controller
 
         $inspeksi = Ss6Model::create($data);
         $this->storeInspectionPhoto($req, $inspeksi);
+        $this->simCardAssignment->sync($asset, $validated['sim_card_ids'] ?? []);
 
         return redirect()
             ->route('inspeksi.ss6.index')
@@ -178,6 +189,8 @@ class Ss6Controller extends Controller
 
     public function edit(Ss6Model $inspeksi)
     {
+        $asset = UnitOperasiModel::where('code_unit', $inspeksi->no_lambung)->first();
+
         return view('Inspeksi.ss6.edit', [
             'inspeksi' => $inspeksi,
             'deviceInfo' => [
@@ -185,6 +198,9 @@ class Ss6Controller extends Controller
                 'no_asset' => $inspeksi->no_asset,
                 'serial_number' => $inspeksi->serial_number,
             ],
+            'asset' => $asset,
+            'availableSimCards' => $asset ? $this->simCardAssignment->availableFor($asset) : collect(),
+            'selectedSimCardIds' => $asset ? $asset->simCards->pluck('id')->all() : [],
         ]);
     }
 
@@ -195,7 +211,14 @@ class Ss6Controller extends Controller
                 ->with('error', 'Inspeksi yang sudah di-approve tidak dapat diubah.');
         }
 
-        $validated = $req->validate($this->checklistValidationRules());
+        $asset = UnitOperasiModel::where('code_unit', $inspeksi->no_lambung)->first();
+
+        $validated = $req->validate(array_merge(
+            $this->checklistValidationRules(),
+            $this->simCardAssignment->rules($asset)
+        ));
+        $simCardIds = $validated['sim_card_ids'] ?? [];
+        unset($validated['sim_card_ids']);
         $data = $this->packKondisiFields($validated);
         $data['diinspeksi_oleh'] = $inspeksi->diinspeksi_oleh ?: $req->user()->nrp;
 
@@ -205,6 +228,10 @@ class Ss6Controller extends Controller
 
         $inspeksi->update($data);
         $this->storeInspectionPhoto($req, $inspeksi);
+
+        if ($asset) {
+            $this->simCardAssignment->sync($asset, $simCardIds);
+        }
 
         return redirect()
             ->route('inspeksi.ss6.index')

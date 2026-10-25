@@ -48,6 +48,19 @@
 <div class="row">
     <div class="col-md-6">
         <div class="mb-3">
+            <label for="email" class="form-label fw-semibold">Email <span class="text-danger">*</span></label>
+            <input type="email" class="form-control @error('email') is-invalid @enderror" id="email" name="email"
+                value="{{ old('email', $user->email ?? '') }}" required>
+            @error('email')
+                <div class="invalid-feedback">{{ $message }}</div>
+            @enderror
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="mb-3">
             <label for="jabatan" class="form-label fw-semibold">Jabatan</label>
             <input type="text" class="form-control @error('jabatan') is-invalid @enderror" id="jabatan"
                 name="jabatan" value="{{ old('jabatan', $user->jabatan ?? '') }}">
@@ -103,7 +116,7 @@
                     <div class="invalid-feedback d-block">{{ $message }}</div>
                 @enderror
             </div>
-            <small class="text-muted">Minimal 8 karakter</small>
+            <small class="text-muted">Minimal 5 karakter</small>
         </div>
     </div>
 

@@ -828,7 +828,7 @@
 
             <td class="serial-value">
 
-                {{ $inspeksi->QrCodeKaryawan->nama ?? '-' }}
+                {{ $inspeksi->inspektorUser?->nama ?? '-' }}
 
             </td>
 
@@ -860,7 +860,7 @@
                   <div class="signature-space" style="text-align: center;">
                         @php
                             $qr = new \chillerlan\QRCode\QRCode();
-                            $qrCode = $qr->render($inspeksi->QrCodeKaryawan->qr_code);
+                            $qrCode = $qr->render($inspeksi->inspektorUser?->qr_code);
                         @endphp
                         <div style="margin-top: 4px; text-align: center;">
                             <img src="{{ $qrCode }}" width="70" height="70" alt="QR Code"
@@ -872,7 +872,7 @@
 
                 <div class="signature-name">
 
-                    {{ $inspeksi->QrCodeKaryawan->nama ?? '.................................' }}
+                    {{ $inspeksi->inspektorUser?->nama ?? '.................................' }}
 
                 </div>
 

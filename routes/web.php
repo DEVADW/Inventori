@@ -24,7 +24,6 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\inspeksi\Ss6Controller;
 use App\Http\Controllers\inspeksi\OfaController;
 use App\Http\Controllers\inspeksi\IccController;
-use App\Http\Controllers\KaryawanController;
 use App\Http\Controllers\SimCardController;
 use App\Http\Controllers\UnitOperasiController;
 use App\Http\Controllers\InventoriStavoltController;
@@ -34,6 +33,7 @@ use App\Http\Controllers\InventoriProyektorController;
 use App\Http\Controllers\AccountSettingsController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\InspectionSettingController;
+use App\Http\Controllers\AccountManagementController;
 
 // Route::get('/', function () {
 //     return view('dashboard');
@@ -87,21 +87,12 @@ Route::middleware('auth')->group(function () {
         Route::put('/return/{id}', 'returnStatus')->name('returnStatus');
     });
 
-    //Route Karyawan
-    Route::controller(KaryawanController::class)->prefix('/karyawan')->name('karyawan.')->group(function () {
-        Route::get('/', 'index')->name('index');
-        Route::get('/create', 'create')->name('create');
-        Route::post('/store', 'store')->name('store');
-        Route::get('/{karyawan}/edit', 'edit')->name('edit');
-        Route::put('/{karyawan}/update', 'update')->name('update');
-        Route::delete('/{karyawan}/destroy', 'destroy')->name('destroy');
-    });
-
     //Route Data Aset - SIM Card
     Route::controller(SimCardController::class)->prefix('/aset/sim-card')->name('aset.simcard.')->group(function () {
         Route::get('/', 'index')->name('index');
         Route::get('/create', 'create')->name('create');
         Route::post('/store', 'store')->name('store');
+        Route::post('/import', 'import')->name('import');
         Route::get('/{simcard}/edit', 'edit')->name('edit');
         Route::put('/{simcard}/update', 'update')->name('update');
         Route::delete('/{simcard}/destroy', 'destroy')->name('destroy');
@@ -112,6 +103,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/', 'index')->name('index');
         Route::get('/create', 'create')->name('create');
         Route::post('/store', 'store')->name('store');
+        Route::post('/import', 'import')->name('import');
         Route::get('/{unitoperasi}/edit', 'edit')->name('edit');
         Route::put('/{unitoperasi}/update', 'update')->name('update');
         Route::delete('/{unitoperasi}/destroy', 'destroy')->name('destroy');
@@ -122,6 +114,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/', 'index')->name('index');
         Route::get('/create', 'create')->name('create');
         Route::post('/store', 'store')->name('store');
+        Route::post('/import', 'import')->name('import');
         Route::get('/{inventoristavolt}/edit', 'edit')->name('edit');
         Route::put('/{inventoristavolt}/update', 'update')->name('update');
         Route::delete('/{inventoristavolt}/destroy', 'destroy')->name('destroy');
@@ -132,6 +125,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/', 'index')->name('index');
         Route::get('/create', 'create')->name('create');
         Route::post('/store', 'store')->name('store');
+        Route::post('/import', 'import')->name('import');
         Route::get('/{inventoriups}/edit', 'edit')->name('edit');
         Route::put('/{inventoriups}/update', 'update')->name('update');
         Route::delete('/{inventoriups}/destroy', 'destroy')->name('destroy');
@@ -142,6 +136,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/', 'index')->name('index');
         Route::get('/create', 'create')->name('create');
         Route::post('/store', 'store')->name('store');
+        Route::post('/import', 'import')->name('import');
         Route::get('/{inventoritv}/edit', 'edit')->name('edit');
         Route::put('/{inventoritv}/update', 'update')->name('update');
         Route::delete('/{inventoritv}/destroy', 'destroy')->name('destroy');
@@ -152,6 +147,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/', 'index')->name('index');
         Route::get('/create', 'create')->name('create');
         Route::post('/store', 'store')->name('store');
+        Route::post('/import', 'import')->name('import');
         Route::get('/{inventoriproyektor}/edit', 'edit')->name('edit');
         Route::put('/{inventoriproyektor}/update', 'update')->name('update');
         Route::delete('/{inventoriproyektor}/destroy', 'destroy')->name('destroy');
@@ -162,6 +158,7 @@ Route::middleware('auth')->group(function () {
     // Route Inspeksi
     // Route Stavolt
     Route::controller(StavoltController::class)
+        ->middleware('inspeksi.access:stavolt')
         ->prefix('/inspeksi/stavolt')
         ->name('inspeksi.stavolt.')
         ->group(function () {
@@ -183,6 +180,7 @@ Route::middleware('auth')->group(function () {
 
     // Route UPS
     Route::controller(UpsController::class)
+        ->middleware('inspeksi.access:ups')
         ->prefix('/inspeksi/ups')
         ->name('inspeksi.ups.')
         ->group(function () {
@@ -203,6 +201,7 @@ Route::middleware('auth')->group(function () {
 
     // Route Monitor
     Route::controller(MonitorController::class)
+        ->middleware('inspeksi.access:monitor')
         ->prefix('/inspeksi/monitor')
         ->name('inspeksi.monitor.')
         ->group(function () {
@@ -224,6 +223,7 @@ Route::middleware('auth')->group(function () {
 
     // Route Proyektor
     Route::controller(ProyektorController::class)
+        ->middleware('inspeksi.access:proyektor')
         ->prefix('/inspeksi/proyektor')
         ->name('inspeksi.proyektor.')
         ->group(function () {
@@ -245,6 +245,7 @@ Route::middleware('auth')->group(function () {
 
     // Route SS6
     Route::controller(Ss6Controller::class)
+        ->middleware('inspeksi.access:ss6')
         ->prefix('/inspeksi/ss6')
         ->name('inspeksi.ss6.')
         ->group(function () {
@@ -266,6 +267,7 @@ Route::middleware('auth')->group(function () {
 
     // Route Inspeksi Perangkat Onboard FleetSafe Assist (OFA)
     Route::controller(OfaController::class)
+        ->middleware('inspeksi.access:ofa')
         ->prefix('/inspeksi/ofa')
         ->name('inspeksi.ofa.')
         ->group(function () {
@@ -286,6 +288,7 @@ Route::middleware('auth')->group(function () {
         });
 
     Route::controller(IccController::class)
+        ->middleware('inspeksi.access:icc')
         ->prefix('/inspeksi/icc')
         ->name('inspeksi.icc.')
         ->group(function () {
@@ -324,6 +327,13 @@ Route::middleware('auth')->group(function () {
         Route::get('/{user}/edit', 'edit')->name('edit');
         Route::put('/{user}', 'update')->name('update');
         Route::delete('/{user}', 'destroy')->name('destroy');
+    });
+
+    // Account Management Route (Admin Only)
+    Route::middleware('can:isAdmin')->controller(AccountManagementController::class)->prefix('/manajemen-akun')->name('manajemen-akun.')->group(function () {
+        Route::get('/', 'index')->name('index');
+        Route::get('/{user}/edit', 'edit')->name('edit');
+        Route::put('/{user}', 'update')->name('update');
     });
 
     // Inspection Period Settings Route (Admin Only)

@@ -52,10 +52,11 @@ class UserManagementController extends Controller
     {
         $validated = $request->validate([
             'nama' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'nrp' => ['required', 'string', 'max:255', 'unique:users,nrp'],
             'jabatan' => ['nullable', 'string', 'max:255'],
             'role' => ['required', 'in:admin,user'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'password' => ['required', 'string', 'min:5', 'confirmed'],
             'password_confirmation' => ['required'],
         ]);
 
@@ -81,10 +82,11 @@ class UserManagementController extends Controller
     {
         $validated = $request->validate([
             'nama' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'nrp' => ['required', 'string', 'max:255', Rule::unique('users', 'nrp')->ignore($user->id)],
             'jabatan' => ['nullable', 'string', 'max:255'],
             'role' => ['required', 'in:admin,user'],
-            'password' => ['nullable', 'string', 'min:8', 'confirmed'],
+            'password' => ['nullable', 'string', 'min:5', 'confirmed'],
             'password_confirmation' => ['nullable'],
         ]);
 

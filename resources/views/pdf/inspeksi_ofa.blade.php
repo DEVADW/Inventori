@@ -1131,7 +1131,7 @@
                 <div class="signature-space">
                     @php
                             $qr = new \chillerlan\QRCode\QRCode();
-                            $qrCode = $qr->render($ofa->karyawanId->qr_code);
+                            $qrCode = $qr->render($ofa->inspektorUser?->qr_code);
                         @endphp
                         <div style="margin-top: 4px; text-align: center;">
                             <img src="{{ $qrCode }}" width="48" height="48" alt="QR Code"
@@ -1142,7 +1142,7 @@
                 <div class="signature-line"></div>
 
                 <div class="signature-name">
-                    {{ $ofa->karyawanId->nama ?: 'ICT TECHNICIAN' }}
+                    {{ $ofa->inspektorUser?->nama ?: 'ICT TECHNICIAN' }}
                 </div>
 
             </td>
