@@ -152,8 +152,7 @@ Route::middleware('auth')->group(function () {
         Route::put('/{inventoriproyektor}/update', 'update')->name('update');
         Route::delete('/{inventoriproyektor}/destroy', 'destroy')->name('destroy');
     });
-
-
+    });
 
     // Route Inspeksi
     // Route Stavolt
@@ -307,7 +306,6 @@ Route::middleware('auth')->group(function () {
             Route::post('/clone', 'clone')->name('clone');
 
         });
-    });
 
 
     // Account Settings Route
