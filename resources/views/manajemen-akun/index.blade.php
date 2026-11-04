@@ -41,6 +41,7 @@
                     <th class="text-center">Role</th>
                     <th>Akses Inspeksi</th>
                     <th class="text-center">Akses Foto</th>
+                    <th class="text-center">Akses Inventori</th>
                     <th style="width: 120px" class="text-center">Aksi</th>
                 </tr>
             </thead>
@@ -88,6 +89,13 @@
                             @endif
                         </td>
                         <td class="text-center">
+                            @if ($user->role === 'admin' || $user->akses_inventori)
+                                <span class="badge bg-success"><i class="bi bi-unlock-fill me-1"></i>Diizinkan</span>
+                            @else
+                                <span class="badge bg-secondary"><i class="bi bi-lock-fill me-1"></i>Ditolak</span>
+                            @endif
+                        </td>
+                        <td class="text-center">
                             <a href="{{ route('manajemen-akun.edit', $user->id) }}" class="btn btn-sm btn-warning text-white" title="Kelola Akses">
                                 <i class="bi bi-key"></i>
                             </a>
@@ -95,7 +103,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8" class="text-center py-4 text-muted">
+                        <td colspan="9" class="text-center py-4 text-muted">
                             <i class="bi bi-inbox fs-5 me-2"></i>Tidak ada data akun
                         </td>
                     </tr>

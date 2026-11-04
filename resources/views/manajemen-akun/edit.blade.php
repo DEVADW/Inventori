@@ -56,6 +56,25 @@
 
         <hr class="my-4">
 
+        <h6 class="fw-semibold mb-1">Akses Halaman Inventori</h6>
+        <p class="text-muted small mb-3">Atur apakah pengguna ini boleh membuka halaman Inventaris dan Data Aset (SIM Card, Unit Operasi, Inventori Stavolt/UPS/TV/Proyektor).</p>
+        @if ($user->role === 'admin')
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>Akun dengan role admin otomatis memiliki akses ke halaman Inventori.
+            </div>
+        @else
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" name="akses_inventori" value="1"
+                    id="akses_inventori" {{ old('akses_inventori', $user->akses_inventori) ? 'checked' : '' }}>
+                <label class="form-check-label" for="akses_inventori">
+                    Izinkan akses halaman Inventori
+                </label>
+            </div>
+            <div class="form-text">Jika dimatikan, pengguna tidak bisa membuka halaman Inventaris maupun Data Aset.</div>
+        @endif
+
+        <hr class="my-4">
+
         <h6 class="fw-semibold mb-1">Pengaturan Foto Inspeksi</h6>
         <p class="text-muted small mb-3">Atur apakah pengguna ini boleh memilih foto dari galeri, atau hanya dapat mengambil foto langsung dari kamera.</p>
         <div class="form-check form-switch">

@@ -73,7 +73,7 @@ Route::middleware('auth')->group(function () {
         });
     });
 
-    Route::middleware('jabatan:helper,admin,GL,ICT,hardware_enggineer,Hardware Engineer,ICT_technician,ICT Technician,non_staff')->group(function () {
+    Route::middleware('inventori.access')->group(function () {
 
     //Route Inventaris 
     Route::controller(InventarisController::class)->prefix('/inventaris')->name('inventaris.')->group(function () {

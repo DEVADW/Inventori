@@ -27,6 +27,7 @@ class User extends Authenticatable
         'foto',
         'akses_inspeksi',
         'izin_galeri_foto',
+        'akses_inventori',
     ];
 
     /**
@@ -51,6 +52,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'akses_inspeksi' => 'array',
             'izin_galeri_foto' => 'boolean',
+            'akses_inventori' => 'boolean',
         ];
     }
 

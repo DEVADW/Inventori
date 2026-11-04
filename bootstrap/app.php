@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Middleware\CheckRole;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -14,7 +13,10 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         //
-        $middleware->alias(['jabatan' => CheckRole::class, 'inspeksi.access' => \App\Http\Middleware\EnsureInspectionAccess::class]);
+        $middleware->alias([
+            'inspeksi.access' => \App\Http\Middleware\EnsureInspectionAccess::class,
+            'inventori.access' => \App\Http\Middleware\EnsureInventoryAccess::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

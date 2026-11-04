@@ -65,6 +65,7 @@ class AccountManagementController extends Controller
         $user->update([
             'akses_inspeksi' => array_values($validated['modules'] ?? []),
             'izin_galeri_foto' => $izinGaleriFoto,
+            'akses_inventori' => $request->boolean('akses_inventori'),
         ]);
 
         return redirect()->route('manajemen-akun.index')
