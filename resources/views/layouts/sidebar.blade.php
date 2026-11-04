@@ -2,6 +2,7 @@
     $userJabatan = strtolower(trim((string) (Auth::user()->jabatan ?? '')));
     $isIctTechnician = in_array($userJabatan, ['ict_technician', 'ict technician'], true);
     $isHardwareEngineer = in_array($userJabatan, ['hardware engineer', 'hardware_enggineer', 'hardware engg', 'hardware_engg'], true);
+    $hasInventoryAccess = Auth::user()->role === 'admin' || Auth::user()->akses_inventori;
 @endphp
 
 <aside class="app-sidebar shadow" data-bs-theme="dark">
@@ -37,8 +38,8 @@
                         </li>
                     @endcan
 
-                    <!-- Inventaris - Admin Only -->
-                    @if(Auth::user()->can('isIct') || Auth::user()->can('isGL') || Auth::user()->can('isAdmin'))
+                    <!-- Inventaris -->
+                    @if($hasInventoryAccess)
                         <li class="nav-item">
                             <a href="{{ route('inventaris.index') }}"
                                 class="nav-link {{ request()->routeIs('inventaris.*') ? 'active' : '' }}">
@@ -48,8 +49,8 @@
                         </li>
                     @endif
 
-                    <!-- Menu Dropdown Data Aset - Jabatan ICT, GL, dan Admin -->
-                    @if(Auth::user()->can('isIct') || Auth::user()->can('isGL') || Auth::user()->can('isAdmin'))
+                    <!-- Menu Dropdown Data Aset -->
+                    @if($hasInventoryAccess)
                         <li class="nav-item {{ request()->routeIs('aset.*') ? 'menu-open' : '' }}">
                             <a href="#" class="nav-link {{ request()->routeIs('aset.*') ? 'active' : '' }}">
                                 <i class="nav-icon bi bi-hdd-stack"></i>
