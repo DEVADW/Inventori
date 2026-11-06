@@ -7,9 +7,8 @@
 
     <div class="card-header">
         <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-3">
-            <x-counter-badge title="Total Unit TAB SS6" bgColor="bg-info-subtle" :counter="$totalAset" />
-            <x-counter-badge title="Sudah Diinspeksi" bgColor="bg-success-subtle" :counter="$totalSudah" />
-            <x-counter-badge title="Belum Diinspeksi" bgColor="bg-warning-subtle" :counter="$totalBelum" />
+            <x-inspection-status-filter route="inspeksi.ss6.index" :status="$statusFilter" :totalAset="$totalAset"
+                :totalSudah="$totalSudah" :totalBelum="$totalBelum" />
 
             <div class="d-flex flex-wrap align-items-center gap-2">
                 <x-data-search :action="route('inspeksi.ss6.index')" placeholder="Cari no lambung/aset"></x-data-search>

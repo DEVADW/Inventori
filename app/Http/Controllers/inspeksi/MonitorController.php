@@ -29,6 +29,13 @@ class MonitorController extends Controller
     {
         [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
 
+        $allCodes = InventoriTvModel::pluck('no_aset');
+
+        $inspectedCodes = MonitorModel::whereIn('nomor_aset', $allCodes)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->distinct()
+            ->pluck('nomor_aset');
+
         $assetQuery = InventoriTvModel::query();
 
         if ($request->filled('search')) {
@@ -40,6 +47,13 @@ class MonitorController extends Controller
                     ->orWhere('serial_number', 'like', "%{$search}%")
                     ->orWhere('lokasi', 'like', "%{$search}%");
             });
+        }
+
+        $status = $request->input('status');
+        if ($status === 'belum') {
+            $assetQuery->whereNotIn('no_aset', $inspectedCodes);
+        } elseif ($status === 'sudah') {
+            $assetQuery->whereIn('no_aset', $inspectedCodes);
         }
 
         $assets = $assetQuery->orderBy('no_aset')->paginate(15)->withQueryString();
@@ -54,11 +68,8 @@ class MonitorController extends Controller
             $asset->currentInspection = $inspectionsThisPeriod->get($asset->no_aset);
         });
 
-        $totalAset = InventoriTvModel::count();
-        $totalSudah = MonitorModel::whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
-            ->whereIn('nomor_aset', InventoriTvModel::pluck('no_aset'))
-            ->distinct()
-            ->count('nomor_aset');
+        $totalAset = $allCodes->count();
+        $totalSudah = $inspectedCodes->count();
 
         return view('Inspeksi.monitor.index', [
             'assets' => $assets,
@@ -66,6 +77,7 @@ class MonitorController extends Controller
             'totalAset' => $totalAset,
             'totalSudah' => $totalSudah,
             'totalBelum' => max(0, $totalAset - $totalSudah),
+            'statusFilter' => $status,
             'isGroupLeader' => $request->user()->jabatan === 'GL',
         ]);
     }

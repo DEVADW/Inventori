@@ -42,6 +42,13 @@ class Ss6Controller extends Controller
     {
         [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
 
+        $allCodes = UnitOperasiModel::where('ss6', true)->pluck('code_unit');
+
+        $inspectedCodes = Ss6Model::whereIn('no_lambung', $allCodes)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->distinct()
+            ->pluck('no_lambung');
+
         $assetQuery = UnitOperasiModel::where('ss6', true);
 
         if ($req->filled('search')) {
@@ -51,6 +58,13 @@ class Ss6Controller extends Controller
                     ->orWhere('no_aset_tab', 'like', "%{$search}%")
                     ->orWhere('serial_number_tab', 'like', "%{$search}%");
             });
+        }
+
+        $status = $req->input('status');
+        if ($status === 'belum') {
+            $assetQuery->whereNotIn('code_unit', $inspectedCodes);
+        } elseif ($status === 'sudah') {
+            $assetQuery->whereIn('code_unit', $inspectedCodes);
         }
 
         $assets = $assetQuery->orderBy('code_unit')->paginate(15)->withQueryString();
@@ -65,11 +79,8 @@ class Ss6Controller extends Controller
             $asset->currentInspection = $inspectionsThisPeriod->get($asset->code_unit);
         });
 
-        $totalAset = UnitOperasiModel::where('ss6', true)->count();
-        $totalSudah = Ss6Model::whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
-            ->whereIn('no_lambung', UnitOperasiModel::where('ss6', true)->pluck('code_unit'))
-            ->distinct()
-            ->count('no_lambung');
+        $totalAset = $allCodes->count();
+        $totalSudah = $inspectedCodes->count();
 
         return view('Inspeksi.ss6.index', [
             'assets' => $assets,
@@ -77,6 +88,7 @@ class Ss6Controller extends Controller
             'totalAset' => $totalAset,
             'totalSudah' => $totalSudah,
             'totalBelum' => max(0, $totalAset - $totalSudah),
+            'statusFilter' => $status,
             'isGroupLeader' => $req->user()->jabatan === 'GL',
         ]);
     }

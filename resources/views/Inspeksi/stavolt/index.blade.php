@@ -6,9 +6,8 @@
 @section('konten')
     <div class="card-header">
         <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-3">
-            <x-counter-badge title="Total Aset" bgColor="bg-info-subtle" :counter="$totalAset" />
-            <x-counter-badge title="Sudah Diinspeksi" bgColor="bg-success-subtle" :counter="$totalSudah" />
-            <x-counter-badge title="Belum Diinspeksi" bgColor="bg-warning-subtle" :counter="$totalBelum" />
+            <x-inspection-status-filter route="inspeksi.stavolt.index" :status="$statusFilter" :totalAset="$totalAset"
+                :totalSudah="$totalSudah" :totalBelum="$totalBelum" />
             <div class="d-flex flex-wrap gap-2">
                 <x-data-search :action="route('inspeksi.stavolt.index')" placeholder="Cari data Stavolt" />
                 <a href="{{ route('inspeksi.stavolt.export', request()->only('search')) }}" class="btn btn-sm btn-outline-success"><i class="bi bi-file-excel"></i> Export Excel</a>

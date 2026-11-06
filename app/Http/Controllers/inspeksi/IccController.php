@@ -49,6 +49,13 @@ class IccController extends Controller
     {
         [$start, $end] = InspectionPeriod::currentRange(self::MODULE);
 
+        $allCodes = UnitOperasiModel::where('icc', true)->pluck('code_unit');
+
+        $inspectedCodes = IccModel::whereIn('no_lambung_unit', $allCodes)
+            ->whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
+            ->distinct()
+            ->pluck('no_lambung_unit');
+
         $assetQuery = UnitOperasiModel::where('icc', true);
 
         if ($request->filled('search')) {
@@ -57,6 +64,13 @@ class IccController extends Controller
                 $q->where('code_unit', 'like', "%{$search}%")
                     ->orWhere('type_unit', 'like', "%{$search}%");
             });
+        }
+
+        $status = $request->input('status');
+        if ($status === 'belum') {
+            $assetQuery->whereNotIn('code_unit', $inspectedCodes);
+        } elseif ($status === 'sudah') {
+            $assetQuery->whereIn('code_unit', $inspectedCodes);
         }
 
         $assets = $assetQuery->orderBy('code_unit')->paginate(15)->withQueryString();
@@ -71,11 +85,8 @@ class IccController extends Controller
             $asset->currentInspection = $inspectionsThisPeriod->get($asset->code_unit);
         });
 
-        $totalAset = UnitOperasiModel::where('icc', true)->count();
-        $totalSudah = IccModel::whereBetween('tanggal_inspeksi', [$start->toDateString(), $end->toDateString()])
-            ->whereIn('no_lambung_unit', UnitOperasiModel::where('icc', true)->pluck('code_unit'))
-            ->distinct()
-            ->count('no_lambung_unit');
+        $totalAset = $allCodes->count();
+        $totalSudah = $inspectedCodes->count();
 
         return view('Inspeksi.icc.index', [
             'assets' => $assets,
@@ -83,6 +94,7 @@ class IccController extends Controller
             'totalAset' => $totalAset,
             'totalSudah' => $totalSudah,
             'totalBelum' => max(0, $totalAset - $totalSudah),
+            'statusFilter' => $status,
             'isGroupLeader' => $request->user()->jabatan === 'GL',
         ]);
     }
